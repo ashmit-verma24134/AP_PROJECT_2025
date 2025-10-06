@@ -35,9 +35,9 @@ public class LoginFrame extends JFrame{
                 User user = authService.authenticate(username, password);
                 System.out.println("[LoginFrame] Auth result: " + (user == null ? "FAILED" : "SUCCESS"));
                 if (user == null) {
-                    JOptionPane.showMessageDialog(this, "❌ Invalid username or password", "Login Failed", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(this, " Invalid username or password", "Login Failed", JOptionPane.ERROR_MESSAGE);
                 } else {
-                    JOptionPane.showMessageDialog(this, "✅ Login success! Role ID: " + user.getRoleId(), "Authenticated", JOptionPane.INFORMATION_MESSAGE);
+                    JOptionPane.showMessageDialog(this, " Login success! Role ID: " + user.getRoleId(), "Authenticated", JOptionPane.INFORMATION_MESSAGE);
                     openDashboardFor(user);
                 }
             } catch (Exception ex) {

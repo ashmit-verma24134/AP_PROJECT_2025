@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
   <modelVersion>4.0.0</modelVersion>
 
@@ -28,6 +27,7 @@
     <junit.jupiter.version>5.9.2</junit.jupiter.version>
     <mockito.version>5.3.1</mockito.version>
   </properties>
+
   <dependencies>
     <!-- UI -->
     <dependency>
@@ -48,12 +48,13 @@
       <version>${mysql.connector.version}</version>
     </dependency>
 
-    <!-- Password hashing -->
     <dependency>
-      <groupId>org.mindrot</groupId>
-      <artifactId>jbcrypt</artifactId>
-      <version>${jbcrypt.version}</version>
-    </dependency>
+  <groupId>org.mindrot</groupId>
+  <artifactId>jbcrypt</artifactId>
+  <version>0.4</version>
+</dependency>
+
+
 
     <!-- CSV and PDF export -->
     <dependency>
@@ -79,7 +80,7 @@
       <version>${logback.version}</version>
     </dependency>
 
-    <!-- Test -->
+    <!-- Testing -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
@@ -139,6 +140,16 @@
             </configuration>
           </execution>
         </executions>
+      </plugin>
+
+      <!-- Exec plugin (for running Main directly) -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <configuration>
+          <mainClass>edu.univ.erp.Main</mainClass>
+        </configuration>
       </plugin>
 
     </plugins>

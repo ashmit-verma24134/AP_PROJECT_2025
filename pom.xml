@@ -143,14 +143,16 @@
       </plugin>
 
       <!-- Exec plugin (for running Main directly) -->
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <version>3.1.0</version>
-        <configuration>
-          <mainClass>edu.univ.erp.Main</mainClass>
-        </configuration>
-      </plugin>
+<plugin>
+  <groupId>org.codehaus.mojo</groupId>
+  <artifactId>exec-maven-plugin</artifactId>
+  <version>3.1.0</version>
+  <configuration>
+    <!-- temporarily run seeder -->
+<mainClass>edu.univ.erp.Main</mainClass>
+  </configuration>
+</plugin>
+
 
     </plugins>
   </build>

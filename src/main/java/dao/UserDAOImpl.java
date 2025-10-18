@@ -1,8 +1,10 @@
 package dao;
 import models.User;
-import util.DBConnection;
+
 import java.sql.*;
 import java.time.LocalDateTime;
+
+import edu.univ.erp.util.DBConnection;
 public class UserDAOImpl implements UserDAO {
     @Override
     public User findByUsername(String username) throws Exception{

@@ -1,6 +1,7 @@
 package test;
-import util.DBConnection;
 import java.sql.*;
+
+import edu.univ.erp.util.DBConnection;
 public class DBTest {
   public static void main(String[] args) throws Exception {
     try (Connection c = DBConnection.getConnection();

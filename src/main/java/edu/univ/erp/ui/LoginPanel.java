@@ -35,6 +35,7 @@ public class LoginPanel extends JPanel {
         JPanel card = createCard();
         add(card);
     }
+    
 
     private JPanel createCard() {
         JPanel card = new JPanel();
@@ -81,26 +82,22 @@ public class LoginPanel extends JPanel {
 
         card.add(Box.createRigidArea(new Dimension(0, 18)));
 
+
         // form
         JPanel form = new JPanel();
         form.setBackground(Color.WHITE);
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
 
-usernameField = createPlaceholderField("Username", false);
-form.add(usernameField);
-form.add(Box.createRigidArea(new Dimension(0, 12)));
+        usernameField = createPlaceholderField("Username", false);
+        form.add(usernameField);
+        form.add(Box.createRigidArea(new Dimension(0, 12)));
 
-passwordField = (JPasswordField) createPlaceholderField("Password", true);
-form.add(passwordField);
+        passwordField = (JPasswordField) createPlaceholderField("Password", true);
+        form.add(passwordField);
 
 
         form.add(Box.createRigidArea(new Dimension(0, 12)));
 
-        JCheckBox remember = new JCheckBox("Remember me");
-        remember.setBackground(Color.WHITE);
-        remember.setForeground(MID_GRAY);
-        remember.setAlignmentX(Component.LEFT_ALIGNMENT);
-        form.add(remember);
 
         form.add(Box.createRigidArea(new Dimension(0, 14)));
 
@@ -146,6 +143,23 @@ form.add(passwordField);
 
         card.add(form);
         card.add(Box.createVerticalGlue());
+
+                // --- add "Create account" link/button (place after signInBtn or separator) ---
+        JButton createAccBtn = new JButton("Create account");
+        createAccBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        createAccBtn.setBorderPainted(false);
+        createAccBtn.setContentAreaFilled(false);
+        createAccBtn.setForeground(MID_GRAY);
+        createAccBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        createAccBtn.addActionListener(e -> {
+            main.showCard("signup");
+        });
+
+
+        form.add(Box.createRigidArea(new Dimension(0, 8)));
+        form.add(createAccBtn);
+// -------------------------------------------------------------------------
+
 
         JLabel footer = new JLabel("© IIITD. Need help? Contact IT Support");
         footer.setAlignmentX(Component.CENTER_ALIGNMENT);

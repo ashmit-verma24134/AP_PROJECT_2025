@@ -21,20 +21,26 @@ public class MainFrame extends JFrame {
         setLocationRelativeTo(null);
 
         // create panels (LoginPanel should be implemented)
+// create panels
         LoginPanel login = new LoginPanel(this);
         AdminPanel admin = new AdminPanel(this);
+        SignUpPanel signup = new SignUpPanel(this);
         InstructorPanel instr = new InstructorPanel(this);
         StudentPanel student = new StudentPanel(this);
 
-        // add cards — use plain String as the card name
+        // add cards
         cards.add(login, "login");
         cards.add(admin, "admin");
+        cards.add(signup, "signup");
         cards.add(instr, "instructor");
         cards.add(student, "student");
 
         add(cards);
         showCard("login");
+
     }
+
+
 
     public void showCard(String key) {
         cardLayout.show(cards, key);

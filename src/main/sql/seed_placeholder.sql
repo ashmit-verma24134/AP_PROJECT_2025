@@ -12,3 +12,6 @@ INSERT INTO courses(code, title, credits) VALUES ('CS101','Intro to Programming'
 -- INSERT INTO instructors(instructor_id, full_name, department) 
 -- VALUES (/*inst1 user_id*/, 'Dr. Example', 'CSE');
 --HERE WE planned our seed users securely, without storing real passwords.Instead we convert that password in to bcrypt hashed form so that passwords store securely....
+"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p < src\main\sql\ddl_auth.sql
+"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p < src\main\resources\sql\ddl_erp.sql
+"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p < src\main\resources\sql\seed_placeholder.sql

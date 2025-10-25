@@ -1,6 +1,8 @@
 package edu.univ.erp.ui;
 
 import edu.univ.erp.service.AuthService;
+import edu.univ.erp.util.DBConnection;
+import edu.univ.erp.data.*;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -8,6 +10,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.io.InputStream;
+import java.sql.Connection;
 
 
  
@@ -265,24 +268,39 @@ private JTextField createPlaceholderField(String placeholder, boolean isPassword
             protected Integer doInBackground() {
                 return AuthService.authenticateByRole(username, pass, selectedRole);
             }
-            @Override
-            protected void done() {
-                try {
-                    int result = get();
-                    setBusy(false, " ");
-                    if (result == -1) {
-                        statusLabel.setText("Login failed — check credentials or role.");
-                    } else {
-                        if (result == 1) main.showCard("admin");
-                        else if (result == 2) main.showCard("instructor");
-                        else if (result == 3) main.showCard("student");
-                    }
-                } catch (Exception ex) {
-                    setBusy(false, " ");
-                    ex.printStackTrace();
-                    statusLabel.setText("An error occurred. See console.");
-                }
-            }
+@Override
+protected void done() {
+    try {
+        int result = get();
+        setBusy(false, " ");
+        if (result == -1) {
+            statusLabel.setText("Login failed — check credentials or role.");
+        } else {
+            if (result == 1) main.showCard("admin");
+            else if (result == 2) main.showCard("instructor");
+// inside LoginPanel.done() where you handle result
+if (result == 3) {
+    // student
+    Long sid = AuthService.getStudentIdForUsername(username);
+    if (sid != null) {
+        main.setCurrentStudentId(String.valueOf(sid)); // uses your MainFrame.setCurrentStudentId
+    } else {
+        // optional: show a warning — user exists but no students record
+        statusLabel.setText("Student record not found for this username/roll.");
+        return;
+    }
+    main.showCard("student");
+}
+
+        }
+    } catch (Exception ex) {
+        setBusy(false, " ");
+        ex.printStackTrace();
+        statusLabel.setText("An error occurred. See console.");
+    }
+}
+
+
         }.execute();
     }
 

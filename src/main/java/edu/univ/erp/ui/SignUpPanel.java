@@ -170,25 +170,33 @@ public class SignUpPanel extends JPanel {
         return 3;
     }
 
-    private void onSignup() {
-        String username = usernameField.getText().trim();
-        String pass = new String(passwordField.getPassword());
-        String confirm = new String(confirmField.getPassword());
-        int roleId = chosenRoleId();
+private void onSignup() {
+    String username = usernameField.getText().trim();
+    String pass = new String(passwordField.getPassword());
+    String confirm = new String(confirmField.getPassword());
+    int roleId = chosenRoleId();
 
-        if (username.isEmpty() || username.equals("Username") ||
-            pass.isEmpty() || pass.equals("Password") ||
-            confirm.isEmpty() || confirm.equals("Confirm Password")) {
-            statusLabel.setText("Please fill all fields.");
-            return;
-        }
-        if (!pass.equals(confirm)) {
-            statusLabel.setText("Passwords do not match.");
-            return;
-        }
+    if (username.isEmpty() || username.equals("Username") ||
+        pass.isEmpty() || pass.equals("Password") ||
+        confirm.isEmpty() || confirm.equals("Confirm Password")) {
+        statusLabel.setText("Please fill all fields.");
+        return;
+    }
+    if (!pass.equals(confirm)) {
+        statusLabel.setText("Passwords do not match.");
+        return;
+    }
 
-        // DB insert
-            try (Connection conn = DBConnection.getConnection()) {
+    // hash password before inserting
+    String hashed = org.mindrot.jbcrypt.BCrypt.hashpw(pass, org.mindrot.jbcrypt.BCrypt.gensalt());
+
+    try (Connection conn = DBConnection.getConnection()) {
+        boolean originalAuto = true;
+        try {
+            originalAuto = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+
+            // check username exists
             try (PreparedStatement ps = conn.prepareStatement("SELECT user_id FROM users WHERE username = ?")) {
                 ps.setString(1, username);
                 try (ResultSet rs = ps.executeQuery()) {
@@ -199,29 +207,53 @@ public class SignUpPanel extends JPanel {
                 }
             }
 
-
-            String hashed = BCrypt.hashpw(pass, BCrypt.gensalt());
-
-            try (PreparedStatement ins = conn.prepareStatement(
-                    "INSERT INTO users (username, pass_hash, role_id) VALUES (?, ?, ?)")) {
+            // insert into users
+            long newUserId = -1L;
+            String insertUserSql = "INSERT INTO users (username, pass_hash, role_id) VALUES (?, ?, ?)";
+            try (PreparedStatement ins = conn.prepareStatement(insertUserSql, PreparedStatement.RETURN_GENERATED_KEYS)) {
                 ins.setString(1, username);
                 ins.setString(2, hashed);
                 ins.setInt(3, roleId);
-                ins.executeUpdate();
+                int rows = ins.executeUpdate();
+                if (rows == 0) throw new SQLException("Creating user failed, no rows affected.");
+                try (ResultSet gk = ins.getGeneratedKeys()) {
+                    if (gk.next()) newUserId = gk.getLong(1);
+                    else throw new SQLException("Creating user failed, no generated key obtained.");
+                }
             }
 
-            JOptionPane.showMessageDialog(this, "Account created. Please login.");
+            // if it's a student, also create erp_db.students row
+            if (roleId == 3) {
+                String insertStudentSql =
+                    "INSERT INTO erp_db.students (student_id, roll_no, full_name, program, year, created_at, updated_at) " +
+                    "VALUES (?, ?, ?, ?, ?, NOW(), NOW())";
+                try (PreparedStatement ins2 = conn.prepareStatement(insertStudentSql)) {
+                    ins2.setLong(1, newUserId);
+                    ins2.setString(2, username);
+                    ins2.setString(3, "Auto " + username);
+                    ins2.setString(4, "Unknown");
+                    ins2.setInt(5, 1);
+                    ins2.executeUpdate();
+                }
+            }
+
+            conn.commit();
             statusLabel.setForeground(new Color(0,128,0));
             statusLabel.setText("Signup successful");
-            // optional: prefill username in LoginPanel if you add a setter
+            JOptionPane.showMessageDialog(this, "Account created. Please login.");
             main.showCard("login");
 
         } catch (SQLException ex) {
+            try { conn.rollback(); } catch (Exception ignore) {}
             ex.printStackTrace();
             statusLabel.setText("DB error: " + ex.getMessage());
-        } catch (Exception ex) {
-            ex.printStackTrace();
-            statusLabel.setText("Error: " + ex.getMessage());
+        } finally {
+            try { conn.setAutoCommit(originalAuto); } catch (Exception ignore) {}
         }
+    } catch (Exception ex) {
+        ex.printStackTrace();
+        statusLabel.setText("Error: " + ex.getMessage());
     }
+}
+
 }

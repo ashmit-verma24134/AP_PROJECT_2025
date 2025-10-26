@@ -1,37 +1,23 @@
 package edu.univ.erp.service;
 
-/**
- * Simple immutable result object used by service methods.
- */
-public final class Result {
-    private final boolean success;
-    private final String message;
+public class Result {
+    public final boolean success;
+    public final String message;
 
     private Result(boolean success, String message) {
         this.success = success;
         this.message = message;
     }
 
-    // factories
     public static Result ok(String message) {
-        return new Result(true, message == null ? "" : message);
+        return new Result(true, message);
     }
 
     public static Result error(String message) {
-        return new Result(false, message == null ? "" : message);
+        return new Result(false, message);
     }
 
-    // accessors
-    public boolean isSuccess() {
-        return success;
-    }
-
-    public String getMessage() {
-        return message;
-    }
-
+    // Optional convenience:
     @Override
-    public String toString() {
-        return "Result[" + (success ? "OK" : "ERR") + ", " + message + "]";
-    }
+    public String toString() { return (success ? "OK: " : "ERR: ") + message; }
 }

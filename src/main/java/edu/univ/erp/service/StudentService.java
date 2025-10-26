@@ -31,7 +31,7 @@ public Result registerForSection(String studentId, long sectionId) {
             SettingsDao settingsDao = new SettingsDaoImpl(conn);
             if (settingsDao.isMaintenanceOn()) {
                 conn.rollback();
-                return Result.error("⚠️ System in maintenance mode — registration disabled.");
+                return Result.error("System in maintenance mode — registration disabled.");
             }
 
             // Optional defensive check: ensure student exists (gives clearer error than FK failure)
@@ -90,7 +90,7 @@ public Result registerForSection(String studentId, long sectionId) {
             }
 
             conn.commit();
-            return Result.ok("✅ Registered successfully!");
+            return Result.ok(" Registered successfully!");
         } catch (Exception ex) {                       // catch Exception because DAOs can throw SQLException or other
             try { conn.rollback(); } catch (Exception ignore) {}
             // Map common SQL issues to friendly messages where possible
@@ -129,7 +129,7 @@ public Result registerForSection(String studentId, long sectionId) {
                 SettingsDao settingsDao = new SettingsDaoImpl(conn);
                 if (settingsDao.isMaintenanceOn()) {
                     conn.rollback();
-                    return Result.error("⚠️ System in maintenance mode — drop disabled.");
+                    return Result.error(" System in maintenance mode — drop disabled.");
                 }
 
                 // --- Drop deadline check ---
@@ -148,7 +148,7 @@ public Result registerForSection(String studentId, long sectionId) {
                 }
 
                 conn.commit();
-                return Result.ok("✅ Dropped successfully!");
+                return Result.ok("Dropped successfully!");
             } catch (Exception ex) {
                 try { conn.rollback(); } catch (Exception ignore) {}
                 return Result.error("Database error: " + ex.getMessage());

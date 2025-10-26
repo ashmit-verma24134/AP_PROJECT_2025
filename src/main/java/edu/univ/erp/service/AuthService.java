@@ -36,6 +36,25 @@ public class AuthService {
         return null;
     }
 
+     public static String getStudentIdByUsername(String username) {
+        String sql = "SELECT student_id FROM erp_db.students WHERE roll_no = ? LIMIT 1";
+        try (Connection conn = edu.univ.erp.util.DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    long id = rs.getLong("student_id");
+                    return Long.toString(id);
+                } else {
+                    return null;
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            return null;
+        }
+    }
+
     public static Long getStudentIdByRoll(String rollNo) {
     try (Connection conn = DBConnection.getErpConnection();
          PreparedStatement ps = conn.prepareStatement("SELECT student_id FROM students WHERE roll_no = ?")) {

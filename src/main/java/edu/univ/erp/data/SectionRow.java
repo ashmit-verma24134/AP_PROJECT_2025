@@ -1,7 +1,7 @@
 package edu.univ.erp.data;
 
 /**
- * Plain data holder for section rows returned by SectionDao.
+ * Simple POJO representing a section row returned by SectionDao.
  */
 public class SectionRow {
     public long sectionId;
@@ -14,6 +14,5 @@ public class SectionRow {
     public String semester;
     public int year;
     public String dayTime;
-
-    public SectionRow() {}
+    public String sectionNo; // optional if you have one in DB
 }

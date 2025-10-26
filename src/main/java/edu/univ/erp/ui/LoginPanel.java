@@ -276,22 +276,20 @@ protected void done() {
         if (result == -1) {
             statusLabel.setText("Login failed — check credentials or role.");
         } else {
-            if (result == 1) main.showCard("admin");
-            else if (result == 2) main.showCard("instructor");
-// inside LoginPanel.done() where you handle result
-if (result == 3) {
-    // student
-    Long sid = AuthService.getStudentIdForUsername(username);
-    if (sid != null) {
-        main.setCurrentStudentId(String.valueOf(sid)); // uses your MainFrame.setCurrentStudentId
-    } else {
-        // optional: show a warning — user exists but no students record
-        statusLabel.setText("Student record not found for this username/roll.");
-        return;
-    }
-    main.showCard("student");
-}
-
+            if (result == 1) {
+                main.showCard("admin");
+            } else if (result == 2) {
+                main.showCard("instructor");
+            } else if (result == 3) {
+                // student: map username -> student_id in erp_db
+                String sid = AuthService.getStudentIdByUsername(username);
+                if (sid == null) {
+                    statusLabel.setText("Student record not found for this username/roll.");
+                } else {
+                    // passes student id into main frame and shows student UI
+                    main.setCurrentStudentId(sid);
+                }
+            }
         }
     } catch (Exception ex) {
         setBusy(false, " ");
@@ -299,6 +297,7 @@ if (result == 3) {
         statusLabel.setText("An error occurred. See console.");
     }
 }
+
 
 
         }.execute();

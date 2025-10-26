@@ -10,106 +10,164 @@ import java.awt.*;
 import java.sql.Connection;
 
 /**
- * StudentPanel — now shows CatalogPanel (course catalog) instead of CoursesCard.
- * Keeps the maintenance banner and a polling timer to refresh maintenance flag.
+ * StudentPanel: left nav + right CardLayout for Catalog / Timetable / Transcript.
  */
 public class StudentPanel extends JPanel {
     private final MainFrame mainFrame;
-private final CatalogPanel catalogPanel;
-    private final JLabel maintenanceBanner;  // banner label at top
+
+    private final JLabel maintenanceBanner;
     private String studentId;
 
-    // polling timer (optional)
+    // nav & cards
+    private final JPanel navPanel;
+    private final JPanel cards;
+    private final CardLayout cardLayout;
+
+    // child panels
+    private final CatalogPanel catalogPanel;
+    private final TimetablePanel timetablePanel;
+    private final TranscriptPanel transcriptPanel;
+
+    // polling timer
     private final javax.swing.Timer pollTimer;
 
     public StudentPanel(MainFrame mainFrame) {
         this.mainFrame = mainFrame;
-        this.catalogPanel = new CatalogPanel();
 
         setLayout(new BorderLayout());
 
-        // ---------- HEADER ----------
+        // TOP header
         JPanel header = new JPanel(new BorderLayout());
         header.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
         JLabel title = new JLabel("Student Portal");
         title.setFont(title.getFont().deriveFont(16f));
         header.add(title, BorderLayout.WEST);
-
         JButton btnLogout = new JButton("Logout");
         btnLogout.addActionListener(e -> mainFrame.showCard("login"));
         header.add(btnLogout, BorderLayout.EAST);
 
-        // ---------- MAINTENANCE BANNER ----------
-        maintenanceBanner = new JLabel(" Maintenance Mode Active — View Only");
+        maintenanceBanner = new JLabel("Maintenance Mode Active — View Only");
         maintenanceBanner.setOpaque(true);
-        maintenanceBanner.setBackground(new Color(255, 230, 100)); // yellow
-        maintenanceBanner.setForeground(Color.DARK_GRAY);
+        maintenanceBanner.setBackground(new Color(255, 230, 100));
         maintenanceBanner.setHorizontalAlignment(SwingConstants.CENTER);
-        maintenanceBanner.setVisible(false); // hidden by default
+        maintenanceBanner.setVisible(false);
 
-        // ---------- LAYOUT ----------
         JPanel topWrapper = new JPanel(new BorderLayout());
         topWrapper.add(header, BorderLayout.NORTH);
         topWrapper.add(maintenanceBanner, BorderLayout.SOUTH);
-
         add(topWrapper, BorderLayout.NORTH);
-        add(catalogPanel, BorderLayout.CENTER);
 
-        // ---------- start polling timer ----------
-        int intervalMs = 10_000; // check every 10 seconds
-        pollTimer = new javax.swing.Timer(intervalMs, e -> refreshMaintenance());
+        // left nav
+        navPanel = new JPanel();
+        navPanel.setLayout(new BoxLayout(navPanel, BoxLayout.Y_AXIS));
+        navPanel.setBorder(BorderFactory.createEmptyBorder(12,12,12,12));
+        navPanel.setPreferredSize(new Dimension(200, 0));
+
+        // nav buttons
+        JButton btnCatalog = makeNavButton("Course Catalog");
+        JButton btnTimetable = makeNavButton("My Timetable");
+        JButton btnTranscript = makeNavButton("Transcript / Download CSV");
+
+        navPanel.add(btnCatalog);
+        navPanel.add(Box.createVerticalStrut(6));
+        navPanel.add(btnTimetable);
+        navPanel.add(Box.createVerticalStrut(6));
+        navPanel.add(btnTranscript);
+        navPanel.add(Box.createVerticalGlue());
+
+        // right cards
+        cardLayout = new CardLayout();
+        cards = new JPanel(cardLayout);
+
+        catalogPanel = new CatalogPanel();
+        timetablePanel = new TimetablePanel();
+        transcriptPanel = new TranscriptPanel();
+
+        // register listener so other panels refresh when register happens
+catalogPanel.setRegistrationListener(() -> {
+    // these run on the EDT (done() already runs on EDT), but to be safe:
+    SwingUtilities.invokeLater(() -> {
+        timetablePanel.reloadForStudent();
+        transcriptPanel.reloadForStudent();
+    });
+});
+
+        cards.add(catalogPanel, "catalog");
+        cards.add(timetablePanel, "timetable");
+        cards.add(transcriptPanel, "transcript");
+
+        // split layout: nav left, cards right
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, navPanel, cards);
+        split.setDividerLocation(220);
+        split.setResizeWeight(0);
+        add(split, BorderLayout.CENTER);
+
+        // nav actions
+        btnCatalog.addActionListener(e -> showCard("catalog"));
+        btnTimetable.addActionListener(e -> showCard("timetable"));
+        btnTranscript.addActionListener(e -> showCard("transcript"));
+
+        // poll maintenance flag every 10s
+        pollTimer = new javax.swing.Timer(10_000, e -> refreshMaintenance());
         pollTimer.setRepeats(true);
         pollTimer.start();
+
+        // initial
+        showCard("catalog");
     }
 
-    /**
-     * Called by MainFrame (after successful login) to set the student id.
-     * Passes id into catalog and triggers data load.
-     */
-public void setStudentId(String studentId) {
-    this.studentId = studentId;
-    refreshMaintenance();
-    catalogPanel.setStudentId(studentId);
-    catalogPanel.reloadMockData();
-}
-
-
-    public String getStudentId() {
-        return studentId;
+    private JButton makeNavButton(String text) {
+        JButton b = new JButton(text);
+        b.setAlignmentX(Component.LEFT_ALIGNMENT);
+        b.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        return b;
     }
 
-    /**
-     * Refresh maintenance flag from DB (runs in background).
-     * When maintenance ON we show banner and disable catalog actions.
-     */
+    public void showCard(String key) {
+        cardLayout.show(cards, key);
+    }
+
+    public void setStudentId(String studentId) {
+        this.studentId = studentId;
+        // propagate into child panels and trigger loads
+        catalogPanel.setStudentId(studentId);
+        catalogPanel.reloadFromDb(null);
+
+        timetablePanel.setStudentId(studentId);
+        timetablePanel.reloadForStudent();
+
+        transcriptPanel.setStudentId(studentId);
+        transcriptPanel.reloadForStudent();
+
+        refreshMaintenance();
+    }
+
+    public String getStudentId() { return studentId; }
+
     public void refreshMaintenance() {
         new SwingWorker<Boolean, Void>() {
-            @Override
-            protected Boolean doInBackground() {
+            @Override protected Boolean doInBackground() {
                 try (Connection conn = DBConnection.getErpConnection()) {
-                    SettingsDao settingsDao = new SettingsDaoImpl(conn);
-                    return settingsDao.isMaintenanceOn();
+                    SettingsDao s = new SettingsDaoImpl(conn);
+                    return s.isMaintenanceOn();
                 } catch (Exception ex) {
-                    System.err.println("[StudentPanel] refreshMaintenance error: " + ex.getMessage());
-                    return false; // default OFF on error
+                    System.err.println("[StudentPanel] refreshMaintenance: " + ex.getMessage());
+                    return false;
                 }
             }
-
-            @Override
-            protected void done() {
+            @Override protected void done() {
                 try {
                     boolean maintenance = get();
                     maintenanceBanner.setVisible(maintenance);
+
+                    // disable actions on all child panels
                     catalogPanel.setActionsEnabled(!maintenance);
-                } catch (Exception ex) {
-                    // ignore - we've logged in background
-                }
+                    timetablePanel.setActionsEnabled(!maintenance);
+                    transcriptPanel.setActionsEnabled(!maintenance);
+                } catch (Exception ignore) {}
             }
         }.execute();
     }
 
-    /** Stop polling when panel is discarded. */
-    public void stopPolling() {
-        if (pollTimer != null && pollTimer.isRunning()) pollTimer.stop();
-    }
+    public void stopPolling() { if (pollTimer != null && pollTimer.isRunning()) pollTimer.stop(); }
 }

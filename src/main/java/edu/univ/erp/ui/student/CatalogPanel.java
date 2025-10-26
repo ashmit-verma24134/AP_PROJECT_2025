@@ -1,7 +1,11 @@
 package edu.univ.erp.ui.student;
 
+import edu.univ.erp.data.SectionDao;
+import edu.univ.erp.data.SectionDaoImpl;
+import edu.univ.erp.data.SectionRow;
 import edu.univ.erp.service.Result;
 import edu.univ.erp.service.StudentService;
+import edu.univ.erp.util.DBConnection;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -9,16 +13,12 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellEditor;
 import java.awt.*;
 import java.awt.event.ActionEvent;
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Simple CatalogPanel:
- * - Shows list of available course sections (mock data for now)
- * - Search box (client-side)
- * - Register button per row which calls StudentService.registerForSection(...)
- *
- * Replace mock-loading with a SectionDao/Service call later.
+ * CatalogPanel — wired to DB via SectionDao.
  */
 public class CatalogPanel extends JPanel {
     private final CatalogModel model = new CatalogModel();
@@ -27,66 +27,123 @@ public class CatalogPanel extends JPanel {
     private String studentId; // set by StudentPanel after login
     private boolean actionsEnabled = true;
 
+    // inside CatalogPanel class
+private RegistrationListener registrationListener;
+public void setRegistrationListener(RegistrationListener l) { this.registrationListener = l; }
+
+
     public CatalogPanel() {
         setLayout(new BorderLayout(8,8));
         initUI();
-        reloadMockData();
-    }
-
-    private void initUI() {
-        // top: title + search
-        JPanel top = new JPanel(new BorderLayout(8,8));
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
-        JLabel title = new JLabel("Course Catalog");
-        title.setFont(title.getFont().deriveFont(18f));
-        left.add(title);
-        top.add(left, BorderLayout.WEST);
-
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT,6,6));
-        txtSearch.setToolTipText("Search by code, title, or instructor");
-        JButton btnSearch = new JButton("Search");
-        btnSearch.addActionListener(e -> doSearch());
-        right.add(new JLabel("Search:"));
-        right.add(txtSearch);
-        right.add(btnSearch);
-        top.add(right, BorderLayout.EAST);
-
-        add(top, BorderLayout.NORTH);
-
-        // table setup
-        table.setRowHeight(36);
-        table.setFillsViewportHeight(true);
-        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        table.setAutoCreateRowSorter(true); // allow sorting by columns
-
-        // renderers and editor for action column
-        table.getColumnModel().getColumn(0).setCellRenderer(new HtmlRenderer());
-        // action column index is last
-        int actionCol = model.getColumnCount()-1;
-        table.getColumnModel().getColumn(actionCol).setCellRenderer(new RegisterButtonRenderer());
-        table.getColumnModel().getColumn(actionCol).setCellEditor(new RegisterButtonEditor(new JButton("Register")));
-
-        add(new JScrollPane(table), BorderLayout.CENTER);
-
-        // small footer
-        JPanel footer = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton btnRefresh = new JButton("Refresh");
-        btnRefresh.addActionListener(e -> reloadMockData()); // later: reload from DB
-        footer.add(btnRefresh);
-        add(footer, BorderLayout.SOUTH);
+        reloadFromDb(null); // initial load
     }
 
     private void doSearch() {
-        String q = txtSearch.getText().trim().toLowerCase();
-        model.filter(q);
+        String q = txtSearch.getText().trim();
+        reloadFromDb(q.isEmpty() ? null : q);
     }
+
+private void initUI() {
+    // top: title + search
+    JPanel top = new JPanel(new BorderLayout(8,8));
+    JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+    JLabel title = new JLabel("Course Catalog");
+    title.setFont(title.getFont().deriveFont(18f));
+    left.add(title);
+    top.add(left, BorderLayout.WEST);
+
+    JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT,6,6));
+    txtSearch.setToolTipText("Search by code, title, or instructor");
+    JButton btnSearch = new JButton("Search");
+    btnSearch.addActionListener(e -> {
+        String q = txtSearch.getText().trim();
+        reloadFromDb(q.isEmpty() ? null : q);
+    });
+    right.add(new JLabel("Search:"));
+    right.add(txtSearch);
+    right.add(btnSearch);
+    top.add(right, BorderLayout.EAST);
+
+    add(top, BorderLayout.NORTH);
+
+    // table setup
+    table.setRowHeight(56);                      // base height (increase for multi-line)
+    table.setFillsViewportHeight(true);
+    table.setIntercellSpacing(new Dimension(0,6)); // vertical breathing room
+    table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+    table.setAutoCreateRowSorter(true);          // allow sorting by columns
+
+    // IMPORTANT: allow column widths to be honored
+    table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+
+    // set preferred widths (adjust numbers to taste)
+    SwingUtilities.invokeLater(() -> {
+        int colCount = table.getColumnModel().getColumnCount();
+        if (colCount >= 8) {
+            table.getColumnModel().getColumn(0).setPreferredWidth(320); // Course (HTML)
+            table.getColumnModel().getColumn(1).setPreferredWidth(80);  // Section
+            table.getColumnModel().getColumn(2).setPreferredWidth(220); // Instructor
+            table.getColumnModel().getColumn(3).setPreferredWidth(80);  // Credits
+            table.getColumnModel().getColumn(4).setPreferredWidth(90);  // Capacity
+            table.getColumnModel().getColumn(5).setPreferredWidth(90);  // Seats Left
+            table.getColumnModel().getColumn(6).setPreferredWidth(220); // Schedule
+            table.getColumnModel().getColumn(7).setPreferredWidth(140); // Action
+        }
+    });
+
+    // Replace plain HtmlRenderer with wrapping-aware renderer for column 0
+    table.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
+        @Override
+        public Component getTableCellRendererComponent(JTable tbl, Object value, boolean isSelected,
+                                                       boolean hasFocus, int row, int column) {
+            JLabel l = (JLabel) super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, column);
+            String raw = value == null ? "" : value.toString();
+
+            // calculate available pixel width for this column
+            int colWidth = tbl.getColumnModel().getColumn(column).getWidth();
+            int wrapWidth = Math.max(colWidth - 12, 80); // leave padding, keep a sensible minimum
+
+            // insert a div with exact width so Swing wraps the HTML
+            l.setText("<html><div style='width:" + wrapWidth + "px;'>" + raw + "</div></html>");
+            l.setVerticalAlignment(SwingConstants.TOP);
+            l.setOpaque(true);
+            return l;
+        }
+    });
+
+    // action column setup (keep your existing renderers/editors)
+    int actionCol = model.getColumnCount() - 1;
+    table.getColumnModel().getColumn(actionCol).setCellRenderer(new RegisterButtonRenderer());
+    table.getColumnModel().getColumn(actionCol).setCellEditor(new RegisterButtonEditor(new JButton("Register")));
+
+    // add the table to scroll pane AFTER column config
+    JScrollPane scroll = new JScrollPane(table);
+    add(scroll, BorderLayout.CENTER);
+
+    // When user resizes columns, repaint so the wrap-width renderer updates
+    table.getColumnModel().addColumnModelListener(new javax.swing.event.TableColumnModelListener() {
+        @Override public void columnMarginChanged(javax.swing.event.ChangeEvent e) { table.repaint(); }
+        @Override public void columnMoved(javax.swing.event.TableColumnModelEvent e) {}
+        @Override public void columnAdded(javax.swing.event.TableColumnModelEvent e) {}
+        @Override public void columnRemoved(javax.swing.event.TableColumnModelEvent e) {}
+        @Override public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e) {}
+    });
+
+    // small footer
+    JPanel footer = new JPanel(new FlowLayout(FlowLayout.LEFT));
+    JButton btnRefresh = new JButton("Refresh");
+    btnRefresh.addActionListener(e -> {
+        String q = txtSearch.getText().trim();
+        reloadFromDb(q.isEmpty() ? null : q);
+    });
+    footer.add(btnRefresh);
+    add(footer, BorderLayout.SOUTH);
+}
+
 
     /** Called by StudentPanel after login */
-    public void setStudentId(String studentId) {
-        this.studentId = studentId;
-    }
+    public void setStudentId(String studentId) { this.studentId = studentId; }
 
-    /** Enable/disable interactive actions (register) */
     public void setActionsEnabled(boolean enabled) {
         this.actionsEnabled = enabled;
         table.setEnabled(enabled);
@@ -95,17 +152,42 @@ public class CatalogPanel extends JPanel {
 
     public boolean isActionsEnabled() { return actionsEnabled; }
 
-    // --- mock data loader (replace with DB call) ---
-public void reloadMockData() {
-    SwingUtilities.invokeLater(() -> {
-        List<CatalogRow> rows = new ArrayList<>();
-        // USE real section_id values that exist in DB (1,2,3)
-        rows.add(new CatalogRow(1L, "CS101", "Intro to Computer Science", "001", "Dr. Johnson", 3, 30, 27, "Mon/Wed 09:30-11:00", 2025, "Spring"));
-        rows.add(new CatalogRow(2L, "MATH201", "Calculus II", "002", "Prof. Smith", 4, 40, 38, "Tue/Thu 11:30-13:00", 2025, "Spring"));
-        rows.add(new CatalogRow(3L, "ENG102", "English Composition", "003", "Dr. Williams", 3, 30, 0, "Mon 14:00-15:30", 2025, "Spring"));
-        model.setRows(rows);
-    });
-}
+    // --- DB loader ---
+    public void reloadFromDb(String query) {
+        setActionsEnabled(false);
+
+        new SwingWorker<java.util.List<CatalogRow>, Void>() {
+            @Override
+            protected java.util.List<CatalogRow> doInBackground() throws Exception {
+                try (Connection conn = DBConnection.getErpConnection()) {
+                    SectionDao dao = new SectionDaoImpl(conn);
+                    java.util.List<SectionRow> dbRows = dao.searchOpenSections(query);
+                    java.util.List<CatalogRow> list = new java.util.ArrayList<>();
+                    for (SectionRow r : dbRows) {
+                        // Map DB SectionRow -> UI CatalogRow
+                        String sectionNo = (r.sectionNo == null || r.sectionNo.isEmpty()) ? "001" : r.sectionNo;
+                        list.add(new CatalogRow(r.sectionId, r.courseCode, r.title, sectionNo,
+                                r.instructorName, r.credits, r.capacity, r.seatsLeft,
+                                r.dayTime, r.year, r.semester));
+                    }
+                    return list;
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    java.util.List<CatalogRow> loaded = get();
+                    model.setRows(loaded);
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(CatalogPanel.this,
+                            "Database error: " + ex.getMessage(), "Failed", JOptionPane.ERROR_MESSAGE);
+                } finally {
+                    setActionsEnabled(true);
+                }
+            }
+        }.execute();
+    }
 
     // --- model + rows ---
     static class CatalogRow {
@@ -134,25 +216,10 @@ public void reloadMockData() {
 
     static class CatalogModel extends AbstractTableModel {
         private final String[] cols = {"Course","Section","Instructor","Credits","Capacity","Seats Left","Schedule","Action"};
-        private final List<CatalogRow> all = new ArrayList<>();
         private final List<CatalogRow> rows = new ArrayList<>();
 
-        public void setRows(List<CatalogRow> r) { all.clear(); all.addAll(r); rows.clear(); rows.addAll(r); fireTableDataChanged(); }
+        public void setRows(List<CatalogRow> r) { rows.clear(); rows.addAll(r); fireTableDataChanged(); }
         public CatalogRow getRow(int r) { return rows.get(r); }
-
-        public void filter(String q) {
-            rows.clear();
-            if (q == null || q.isEmpty()) rows.addAll(all);
-            else {
-                for (CatalogRow cr : all) {
-                    if (cr.courseCode.toLowerCase().contains(q) || cr.title.toLowerCase().contains(q)
-                            || cr.instructor.toLowerCase().contains(q) || cr.sectionNo.toLowerCase().contains(q)) {
-                        rows.add(cr);
-                    }
-                }
-            }
-            fireTableDataChanged();
-        }
 
         @Override public int getRowCount() { return rows.size(); }
         @Override public int getColumnCount() { return cols.length; }
@@ -190,36 +257,19 @@ public void reloadMockData() {
     }
 
     // Register button renderer/editor
-// Register button renderer/editor
-class RegisterButtonRenderer extends JButton implements javax.swing.table.TableCellRenderer {
-    public RegisterButtonRenderer() { setOpaque(true); }
-
-    @Override
-    public Component getTableCellRendererComponent(JTable table, Object value,
-                                                   boolean isSelected, boolean hasFocus,
-                                                   int row, int col) {
-        // when table asks renderer for header or other non-row, row might be -1
-        if (row < 0) {
-            setText(""); 
-            setEnabled(false);
+    class RegisterButtonRenderer extends JButton implements javax.swing.table.TableCellRenderer {
+        public RegisterButtonRenderer() { setOpaque(true); }
+        @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+            int modelRow = row;
+            if (table != null) {
+                try { modelRow = table.convertRowIndexToModel(row); } catch (Exception ignored) {}
+            }
+            CatalogRow r = CatalogPanel.this.model.getRow(modelRow);
+            setText(r.seatsLeft <= 0 ? "Full" : "Register");
+            setEnabled(actionsEnabled && r.seatsLeft > 0);
             return this;
         }
-
-        // convert view index -> model index (important when sorting enabled)
-        int modelRow = row;
-        try {
-            modelRow = table.convertRowIndexToModel(row);
-        } catch (Exception ignored) {}
-
-        // explicitly reference outer class model to avoid shadowing
-        CatalogRow r = CatalogPanel.this.model.getRow(modelRow);
-
-        setText(r.seatsLeft <= 0 ? "Full" : "Register");
-        setEnabled(actionsEnabled && r.seatsLeft > 0);
-        return this;
     }
-}
-
 
     class RegisterButtonEditor extends AbstractCellEditor implements TableCellEditor {
         protected final JButton button;
@@ -232,75 +282,80 @@ class RegisterButtonRenderer extends JButton implements javax.swing.table.TableC
         }
 
         private void onClick(ActionEvent ev) {
-            // guard
-            if (!actionsEnabled) {
-                Toolkit.getDefaultToolkit().beep();
-                return;
-            }
+            if (!actionsEnabled) { Toolkit.getDefaultToolkit().beep(); return; }
+
             JTable t = (JTable) SwingUtilities.getAncestorOfClass(JTable.class, button);
             if (t == null) return;
-            int r = t.getSelectedRow();
-            if (r < 0) r = t.getEditingRow(); // fallback
-            if (r < 0) return;
-            final CatalogRow row = model.getRow(r);
 
-            // confirm
+            int viewRow = t.getEditingRow();
+            if (viewRow < 0) viewRow = t.getSelectedRow();
+            if (viewRow < 0) return;
+
+            final int modelRow = t.convertRowIndexToModel(viewRow);
+            final CatalogRow row = CatalogPanel.this.model.getRow(modelRow);
+
+            if (row.seatsLeft <= 0) {
+                JOptionPane.showMessageDialog(button, "This section is already full.", "Failed", JOptionPane.ERROR_MESSAGE);
+                fireEditingStopped();
+                return;
+            }
+
             int conf = JOptionPane.showConfirmDialog(button,
                     "Register for " + row.courseCode + " (Section " + row.sectionNo + ")?",
                     "Confirm Registration", JOptionPane.YES_NO_OPTION);
-            if (conf != JOptionPane.YES_OPTION) return;
+            if (conf != JOptionPane.YES_OPTION) { fireEditingStopped(); return; }
 
-            // disable UI and run registration in background
             setActionsEnabled(false);
 
-            // SwingWorker to call StudentService
             new SwingWorker<Result, Void>() {
-                @Override protected Result doInBackground() {
+                @Override
+                protected Result doInBackground() {
                     StudentService svc = new StudentService();
-                    // studentId must be set by parent before calling registration
                     if (studentId == null || studentId.trim().isEmpty()) {
                         return Result.error("No student logged in.");
                     }
                     return svc.registerForSection(studentId, row.sectionId);
                 }
-                @Override protected void done() {
-                    try {
-                        Result res = get();
-if (res.isSuccess()) {
-    JOptionPane.showMessageDialog(button, res.getMessage(), "Success", JOptionPane.INFORMATION_MESSAGE);
-} else {
-    JOptionPane.showMessageDialog(button, res.getMessage(), "Failed", JOptionPane.ERROR_MESSAGE);
+
+@Override
+protected void done() {
+    try {
+        Result res = get();
+        if (res.success) {
+            JOptionPane.showMessageDialog(button, res.message, "Success", JOptionPane.INFORMATION_MESSAGE);
+            // reload catalog (preserve search)
+            String q = txtSearch.getText().trim();
+            reloadFromDb(q.isEmpty() ? null : q);
+
+            // notify outer panels to refresh timetable/transcript
+            if (registrationListener != null) {
+                // call on EDT (we're already on EDT here) — safe
+                registrationListener.onRegistrationChanged();
+            }
+        } else {
+            JOptionPane.showMessageDialog(button, res.message, "Failed", JOptionPane.ERROR_MESSAGE);
+        }
+    } catch (Exception ex) {
+        JOptionPane.showMessageDialog(button, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+    } finally {
+        setActionsEnabled(true);
+        fireEditingStopped();
+    }
 }
 
-                    } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(button, "Error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                    } finally {
-                        setActionsEnabled(true);
-                    }
-                }
             }.execute();
         }
 
-@Override
-public Component getTableCellEditorComponent(JTable table, Object value,
-                                             boolean isSelected, int row, int column) {
-    int viewRow = row;
-    if (viewRow < 0) viewRow = table.getEditingRow();
-    if (viewRow < 0) return button;
-
-    int modelRow = viewRow;
-    try {
-        modelRow = table.convertRowIndexToModel(viewRow);
-    } catch (Exception ignored) {}
-
-    CatalogRow r = CatalogPanel.this.model.getRow(modelRow);  // <-- explicit
-
-    label = (r.seatsLeft <= 0) ? "Full" : "Register";
-    button.setText(label);
-    button.setEnabled(actionsEnabled && r.seatsLeft > 0);
-    return button;
-}
-
+        @Override
+        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
+            int modelRow = row;
+            try { modelRow = table.convertRowIndexToModel(row); } catch (Exception ignored) {}
+            CatalogRow r = CatalogPanel.this.model.getRow(modelRow);
+            label = (r.seatsLeft <= 0) ? "Full" : "Register";
+            button.setText(label);
+            button.setEnabled(actionsEnabled && r.seatsLeft > 0);
+            return button;
+        }
 
         @Override public Object getCellEditorValue() { return label; }
     }

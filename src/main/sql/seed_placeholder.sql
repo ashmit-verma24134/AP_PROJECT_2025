@@ -15,3 +15,6 @@ INSERT INTO courses(code, title, credits) VALUES ('CS101','Intro to Programming'
 "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p < src\main\sql\ddl_auth.sql
 "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p < src\main\resources\sql\ddl_erp.sql
 "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p < src\main\resources\sql\seed_placeholder.sql
+
+
+

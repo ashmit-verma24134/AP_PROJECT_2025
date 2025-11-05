@@ -68,7 +68,11 @@
       <version>${pdfbox.version}</version>
     </dependency>
 
-
+<dependency>
+  <groupId>org.jfree</groupId>
+  <artifactId>jfreechart</artifactId>
+  <version>1.5.3</version>
+</dependency>
 
 
     <!-- Logging -->

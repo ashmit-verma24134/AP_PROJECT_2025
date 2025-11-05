@@ -3,7 +3,12 @@ package edu.univ.erp.service;
 import edu.univ.erp.data.*;
 import edu.univ.erp.util.DBConnection;
 
-import java.sql.Connection;
+// imports at top of StudentService.java
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import edu.univ.erp.service.StudentSummary;
+import edu.univ.erp.service.SemesterRecord;
 
 /**
  * Business logic for student actions (register/drop).
@@ -108,6 +113,147 @@ public Result registerForSection(String studentId, long sectionId) {
         return Result.error("Connection error: " + ex.getMessage());
     }
 }
+
+/**
+ * Fetch student header info for dashboard: name, program, inferred current sem, current cgpa.
+ * Accepts student_id (long).
+ */
+public StudentSummary getStudentSummaryById(long studentId) throws Exception {
+    String sql = """
+        SELECT s.student_id, s.full_name, s.roll_no, s.program,
+          -- infer current semester as the max section.semester the student has enrollment for
+          (SELECT MAX(CAST(sec.semester AS SIGNED)) FROM sections sec
+             JOIN enrollments e ON e.section_id = sec.section_id
+             WHERE e.student_id = s.student_id AND e.status IN ('ENROLLED','COMPLETED','WAITLISTED')
+          ) AS current_sem,
+          -- try to read precomputed cgpa view, otherwise compute on the fly
+          ( SELECT v.cgpa FROM erp_db.v_student_cgpa v WHERE v.student_id = s.student_id LIMIT 1 ) AS view_cgpa
+        FROM erp_db.students s
+        WHERE s.student_id = ?
+    """;
+
+    try (Connection conn = DBConnection.getErpConnection();
+         PreparedStatement ps = conn.prepareStatement(sql)) {
+        ps.setLong(1, studentId);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (!rs.next()) return null;
+            StudentSummary out = new StudentSummary();
+            out.setStudentId(rs.getLong("student_id"));
+            out.setFullName(rs.getString("full_name"));
+            out.setRollNo(rs.getString("roll_no"));
+            out.setProgram(rs.getString("program"));
+
+            int cs = rs.getInt("current_sem");
+            if (rs.wasNull()) out.setCurrentSem(null);
+            else out.setCurrentSem(cs);
+
+            Double cg = null;
+            try {
+                cg = rs.getDouble("view_cgpa");
+                if (rs.wasNull()) cg = null;
+            } catch (Exception ignore) { cg = null; }
+
+            // if view didn't exist / returned null, compute cgpa on the fly
+            if (cg == null) {
+String calc = 
+    "SELECT ROUND(SUM((g.score / NULLIF(g.max_score,0)) * 10.0 * c.credits) / NULLIF(SUM(c.credits),0), 2) AS cgpa "
+  + "FROM grades g "
+  + "JOIN enrollments e ON g.enrollment_id = e.enrollment_id "
+  + "JOIN sections sec ON e.section_id = sec.section_id "
+  + "JOIN courses c ON sec.course_id = c.course_id "
+  + "WHERE e.student_id = ? "
+  + "  AND g.score IS NOT NULL AND g.max_score IS NOT NULL";
+
+                try (PreparedStatement ps2 = conn.prepareStatement(calc)) {
+                    ps2.setLong(1, studentId);
+                    try (ResultSet rs2 = ps2.executeQuery()) {
+                        if (rs2.next()) {
+                            cg = rs2.getDouble("cgpa");
+                            if (rs2.wasNull()) cg = null;
+                        }
+                    }
+                }
+            }
+            out.setCurrentCgpa(cg);
+            return out;
+        }
+    }
+}
+
+/**
+ * Fetch semester-wise SGPA/CGPA rows for a student up to inferred current semester.
+ * Relies on your v_student_performance view (if present) or computes by grouping.
+ */
+public List<SemesterRecord> getSemestersUpToCurrent(long studentId) throws Exception {
+    List<SemesterRecord> list = new ArrayList<>();
+String sqlView =
+  "SELECT sem_no, year, sgpa, cgpa FROM ( "
++ " SELECT CAST(sec.semester AS SIGNED) AS sem_no, sec.year, "
++ " ROUND(SUM((g.score / NULLIF(g.max_score,0)) * 10.0 * c.credits) / NULLIF(SUM(c.credits),0),2) AS sgpa, NULL AS cgpa "
++ " FROM grades g "
++ " JOIN enrollments e ON g.enrollment_id = e.enrollment_id "
++ " JOIN sections sec ON e.section_id = sec.section_id "
++ " JOIN courses c ON sec.course_id = c.course_id "
++ " WHERE e.student_id = ? AND g.score IS NOT NULL AND g.max_score IS NOT NULL "
++ " GROUP BY CAST(sec.semester AS SIGNED), sec.year "
++ " ORDER BY CAST(sec.semester AS SIGNED) "
++ ") t";
+
+
+    try (Connection conn = DBConnection.getErpConnection();
+         PreparedStatement ps = conn.prepareStatement(sqlView)) {
+        ps.setLong(1, studentId);
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                SemesterRecord r = new SemesterRecord();
+                r.setSemNo(rs.getInt("sem_no"));
+                r.setYear(rs.getInt("year"));
+                double sg = rs.getDouble("sgpa");
+                r.setSgpa(rs.wasNull() ? null : sg);
+                // cgpa per sem can be computed client-side from sgpa & credits; leaving cgpa null or compute cumulative below
+                r.setCgpa(null);
+                list.add(r);
+            }
+        }
+    }
+
+    // compute cumulative CGPA per sem (weighted) if you want it stored in each row
+    // We'll compute using a simple loop over semesters using SQL for credits and points per semester
+    double totalPoints = 0.0;
+    double totalCredits = 0.0;
+    for (SemesterRecord sr : list) {
+        String semCalc = """
+            SELECT SUM(g.points * c.credits) AS pts, SUM(c.credits) AS creds
+            FROM grades g JOIN enrollments e ON g.enrollment_id = e.enrollment_id
+            JOIN sections sec ON e.section_id = sec.section_id
+            JOIN courses c ON sec.course_id = c.course_id
+            WHERE e.student_id = ? AND CAST(sec.semester AS SIGNED) = ? AND g.letter_grade NOT IN ('I','W','S','X')
+        """;
+        try (Connection conn = DBConnection.getErpConnection();
+             PreparedStatement ps = conn.prepareStatement(semCalc)) {
+            ps.setLong(1, studentId);
+            ps.setInt(2, sr.getSemNo());
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    double pts = rs.getDouble("pts");
+                    if (rs.wasNull()) pts = 0.0;
+                    double creds = rs.getDouble("creds");
+                    if (rs.wasNull()) creds = 0.0;
+                    totalPoints += pts;
+                    totalCredits += creds;
+                    if (totalCredits > 0) {
+                        sr.setCgpa(Math.round((totalPoints / totalCredits) * 100.0) / 100.0);
+                    } else {
+                        sr.setCgpa(null);
+                    }
+                }
+            }
+        }
+    }
+
+    return list;
+}
+
 
 
     /**

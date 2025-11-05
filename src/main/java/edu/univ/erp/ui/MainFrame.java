@@ -2,7 +2,6 @@ package edu.univ.erp.ui;
 
 import edu.univ.erp.ui.admin.AdminPanel;
 import edu.univ.erp.ui.Instructor.InstructorPanel; // adjust package if your instructor package differs
-import edu.univ.erp.ui.student.StudentPanel;
 import edu.univ.erp.ui.LoginPanel;
 import edu.univ.erp.ui.SignUpPanel;
 

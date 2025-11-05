@@ -12,10 +12,8 @@ import java.awt.event.ActionEvent;
 import java.io.InputStream;
 import java.sql.Connection;
 
-
- 
 public class LoginPanel extends JPanel {
-    // brand colors
+    // brand colors (kept for local use)
     private static final Color PRIMARY_TEAL = new Color(47, 182, 173);   // #2FB6AD
     private static final Color DARK_GRAY = new Color(59, 59, 59);       // #3B3B3B
     private static final Color MID_GRAY = new Color(120, 130, 140);     // #78828C
@@ -23,11 +21,11 @@ public class LoginPanel extends JPanel {
     private static final Color BORDER_GRAY = new Color(220, 220, 220);
 
     private final MainFrame main;
-    private  JTextField usernameField;
-    private  JPasswordField passwordField;
-    private  JButton signInBtn;
-    private  JToggleButton adminBtn, instBtn, studentBtn;
-    private  JLabel statusLabel;
+    private JTextField usernameField;
+    private JPasswordField passwordField;
+    private JButton signInBtn;
+    private JToggleButton adminBtn, instBtn, studentBtn;
+    private JLabel statusLabel;
     private int selectedRole = 1;
 
     public LoginPanel(MainFrame main) {
@@ -38,7 +36,6 @@ public class LoginPanel extends JPanel {
         JPanel card = createCard();
         add(card);
     }
-    
 
     private JPanel createCard() {
         JPanel card = new JPanel();
@@ -58,7 +55,6 @@ public class LoginPanel extends JPanel {
                 Image img = ImageIO.read(in).getScaledInstance(110, 44, Image.SCALE_SMOOTH);
                 logo.setIcon(new ImageIcon(img));
             } else {
-                // fallback text
                 logo.setText("IIITD");
                 logo.setFont(logo.getFont().deriveFont(Font.BOLD, 22f));
                 logo.setForeground(PRIMARY_TEAL);
@@ -70,7 +66,6 @@ public class LoginPanel extends JPanel {
         card.add(logo);
         card.add(Box.createRigidArea(new Dimension(0, 14)));
 
-        // title + subtitle
         JLabel title = new JLabel("Welcome Back");
         title.setAlignmentX(Component.CENTER_ALIGNMENT);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 20f));
@@ -85,8 +80,6 @@ public class LoginPanel extends JPanel {
 
         card.add(Box.createRigidArea(new Dimension(0, 18)));
 
-
-        // form
         JPanel form = new JPanel();
         form.setBackground(Color.WHITE);
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
@@ -97,14 +90,9 @@ public class LoginPanel extends JPanel {
 
         passwordField = (JPasswordField) createPlaceholderField("Password", true);
         form.add(passwordField);
-
-
         form.add(Box.createRigidArea(new Dimension(0, 12)));
-
-
         form.add(Box.createRigidArea(new Dimension(0, 14)));
 
-        // sign in button (brand teal)
         signInBtn = new JButton("Sign In");
         signInBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
         signInBtn.setPreferredSize(new Dimension(400, 46));
@@ -120,7 +108,6 @@ public class LoginPanel extends JPanel {
         form.add(new JSeparator());
         form.add(Box.createRigidArea(new Dimension(0, 12)));
 
-        // role chips
         JLabel rlbl = new JLabel("Role-based Access");
         rlbl.setForeground(MID_GRAY);
         rlbl.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -147,22 +134,15 @@ public class LoginPanel extends JPanel {
         card.add(form);
         card.add(Box.createVerticalGlue());
 
-                // --- add "Create account" link/button (place after signInBtn or separator) ---
         JButton createAccBtn = new JButton("Create account");
         createAccBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
         createAccBtn.setBorderPainted(false);
         createAccBtn.setContentAreaFilled(false);
         createAccBtn.setForeground(MID_GRAY);
         createAccBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        createAccBtn.addActionListener(e -> {
-            main.showCard("signup");
-        });
-
-
+        createAccBtn.addActionListener(e -> main.showCard("signup"));
         form.add(Box.createRigidArea(new Dimension(0, 8)));
         form.add(createAccBtn);
-// -------------------------------------------------------------------------
-
 
         JLabel footer = new JLabel("© IIITD. Need help? Contact IT Support");
         footer.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -170,14 +150,11 @@ public class LoginPanel extends JPanel {
         footer.setForeground(MID_GRAY);
         card.add(footer);
 
-        // role listeners
         adminBtn.addActionListener(e -> selectedRole = 1);
         instBtn.addActionListener(e -> selectedRole = 2);
         studentBtn.addActionListener(e -> selectedRole = 3);
 
-        // enter key triggers sign in
         passwordField.addActionListener(e -> signInBtn.doClick());
-
         return card;
     }
 
@@ -202,57 +179,55 @@ public class LoginPanel extends JPanel {
         b.setForeground(DARK_GRAY);
         return b;
     }
-    
-    // helper to create a text field with placeholder (hint)
-private JTextField createPlaceholderField(String placeholder, boolean isPassword) {
-    JTextField field;
-    if (isPassword) {
-        field = new JPasswordField();
-        ((JPasswordField) field).setEchoChar('•');
-    } else {
-        field = new JTextField();
-    }
 
-    field.setPreferredSize(new Dimension(400, 44));
-    field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-    field.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(Theme.BORDER_GRAY),
-            BorderFactory.createEmptyBorder(8, 10, 8, 10)
-    ));
-    field.setForeground(Theme.DARK_GRAY);
-    field.setFont(Theme.BODY_FONT);
-
-    // add placeholder behavior
-    field.setText(placeholder);
-    field.setForeground(new Color(180, 180, 180)); // light gray placeholder
-
-    field.addFocusListener(new java.awt.event.FocusAdapter() {
-        @Override
-        public void focusGained(java.awt.event.FocusEvent e) {
-            if (field.getText().equals(placeholder)) {
-                field.setText("");
-                field.setForeground(Theme.DARK_GRAY);
-                if (isPassword) ((JPasswordField) field).setEchoChar('•');
-            }
+    // fixed placeholder field to match new Theme names
+    private JTextField createPlaceholderField(String placeholder, boolean isPassword) {
+        JTextField field;
+        if (isPassword) {
+            field = new JPasswordField();
+            ((JPasswordField) field).setEchoChar('•');
+        } else {
+            field = new JTextField();
         }
 
-        @Override
-        public void focusLost(java.awt.event.FocusEvent e) {
-            if (field.getText().isEmpty()) {
-                field.setForeground(new Color(180, 180, 180));
-                field.setText(placeholder);
-                if (isPassword) ((JPasswordField) field).setEchoChar((char) 0);
+        field.setPreferredSize(new Dimension(400, 44));
+        field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Theme.CARD_BORDER),   // ✅ fixed
+                BorderFactory.createEmptyBorder(8, 10, 8, 10)
+        ));
+        field.setForeground(Theme.NEUTRAL_DARK); // ✅ fixed
+        field.setFont(Theme.BODY_FONT); // stays same
+
+        field.setText(placeholder);
+        field.setForeground(new Color(180, 180, 180));
+
+        field.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusGained(java.awt.event.FocusEvent e) {
+                if (field.getText().equals(placeholder)) {
+                    field.setText("");
+                    field.setForeground(Theme.NEUTRAL_DARK); // ✅ fixed
+                    if (isPassword) ((JPasswordField) field).setEchoChar('•');
+                }
             }
+
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                if (field.getText().isEmpty()) {
+                    field.setForeground(new Color(180, 180, 180));
+                    field.setText(placeholder);
+                    if (isPassword) ((JPasswordField) field).setEchoChar((char) 0);
+                }
+            }
+        });
+
+        if (isPassword) {
+            ((JPasswordField) field).setEchoChar((char) 0);
         }
-    });
 
-    if (isPassword) {
-        ((JPasswordField) field).setEchoChar((char) 0); // hide dots until focused
+        return field;
     }
-
-    return field;
-}
-
 
     private void onSignIn(ActionEvent ev) {
         String username = usernameField.getText().trim();
@@ -268,38 +243,34 @@ private JTextField createPlaceholderField(String placeholder, boolean isPassword
             protected Integer doInBackground() {
                 return AuthService.authenticateByRole(username, pass, selectedRole);
             }
-@Override
-protected void done() {
-    try {
-        int result = get();
-        setBusy(false, " ");
-        if (result == -1) {
-            statusLabel.setText("Login failed — check credentials or role.");
-        } else {
-            if (result == 1) {
-                main.showCard("admin");
-            } else if (result == 2) {
-                main.showCard("instructor");
-            } else if (result == 3) {
-                // student: map username -> student_id in erp_db
-                String sid = AuthService.getStudentIdByUsername(username);
-                if (sid == null) {
-                    statusLabel.setText("Student record not found for this username/roll.");
-                } else {
-                    // passes student id into main frame and shows student UI
-                    main.setCurrentStudentId(sid);
+
+            @Override
+            protected void done() {
+                try {
+                    int result = get();
+                    setBusy(false, " ");
+                    if (result == -1) {
+                        statusLabel.setText("Login failed — check credentials or role.");
+                    } else {
+                        if (result == 1) {
+                            main.showCard("admin");
+                        } else if (result == 2) {
+                            main.showCard("instructor");
+                        } else if (result == 3) {
+                            String sid = AuthService.getStudentIdByUsername(username);
+                            if (sid == null) {
+                                statusLabel.setText("Student record not found for this username/roll.");
+                            } else {
+                                main.setCurrentStudentId(sid);
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    setBusy(false, " ");
+                    ex.printStackTrace();
+                    statusLabel.setText("An error occurred. See console.");
                 }
             }
-        }
-    } catch (Exception ex) {
-        setBusy(false, " ");
-        ex.printStackTrace();
-        statusLabel.setText("An error occurred. See console.");
-    }
-}
-
-
-
         }.execute();
     }
 

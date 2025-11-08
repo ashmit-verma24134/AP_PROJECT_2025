@@ -3,10 +3,7 @@ package edu.univ.erp.ui;
 import edu.univ.erp.data.SettingsDao;
 import edu.univ.erp.data.SettingsDaoImpl;
 import edu.univ.erp.service.StudentService;
-import edu.univ.erp.ui.student.CatalogPanel;
-import edu.univ.erp.ui.student.DashboardPanel;
-import edu.univ.erp.ui.student.TimetablePanel;
-import edu.univ.erp.ui.student.TranscriptPanel;
+import edu.univ.erp.ui.student.*;
 import edu.univ.erp.util.DBConnection;
 
 import javax.swing.*;
@@ -26,11 +23,16 @@ public class StudentPanel extends JPanel {
     private final JPanel navButtonsContainer = new JPanel();
     private final JPanel cards = new JPanel(new CardLayout());
 
-    // keep your existing panels (imported from edu.univ.erp.ui.student)
+    // existing panels
     private final DashboardPanel dashboardPanel = new DashboardPanel();
     private final CatalogPanel catalogPanel = new CatalogPanel();
     private final TimetablePanel timetablePanel = new TimetablePanel();
     private final TranscriptPanel transcriptPanel = new TranscriptPanel();
+
+    // ✅ new panels
+    private final FinancePanel financePanel = new FinancePanel();
+    private final GradesPanel gradesPanel = new GradesPanel();
+    private final MyCoursesPanel myCoursesPanel = new MyCoursesPanel();
 
     private String studentId;
     private javax.swing.Timer pollTimer;
@@ -40,7 +42,7 @@ public class StudentPanel extends JPanel {
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
-        // Top header
+        // ---------- Header ----------
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
         header.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
@@ -63,7 +65,7 @@ public class StudentPanel extends JPanel {
         topWrap.add(maintenanceBanner, BorderLayout.SOUTH);
         add(topWrap, BorderLayout.NORTH);
 
-        // Left nav
+        // ---------- Sidebar Navigation ----------
         navPanel.setPreferredSize(new Dimension(Theme.SIDEBAR_WIDTH, 0));
         navPanel.setBackground(Theme.SIDEBAR_BG);
 
@@ -71,12 +73,16 @@ public class StudentPanel extends JPanel {
         navButtonsContainer.setOpaque(false);
         navButtonsContainer.setBounds(0, 16, Theme.SIDEBAR_WIDTH, 600);
 
-        // nav buttons - visually consistent
+        // Sidebar buttons
         JButton btnDashboard = makeNavButton("Dashboard");
         JButton btnCatalog = makeNavButton("Course Catalog");
         JButton btnTimetable = makeNavButton("My Timetable");
         JButton btnTranscript = makeNavButton("Transcript");
+        JButton btnMyCourses = makeNavButton("My Courses");
+        JButton btnGrades = makeNavButton("My Grades");
+        JButton btnFinance = makeNavButton("My Finances");
 
+        // Add sidebar buttons in order
         navButtonsContainer.add(Box.createVerticalStrut(12));
         navButtonsContainer.add(btnDashboard);
         navButtonsContainer.add(Box.createVerticalStrut(8));
@@ -85,34 +91,52 @@ public class StudentPanel extends JPanel {
         navButtonsContainer.add(btnTimetable);
         navButtonsContainer.add(Box.createVerticalStrut(8));
         navButtonsContainer.add(btnTranscript);
+        navButtonsContainer.add(Box.createVerticalStrut(8));
+        navButtonsContainer.add(btnMyCourses);
+        navButtonsContainer.add(Box.createVerticalStrut(8));
+        navButtonsContainer.add(btnGrades);
+        navButtonsContainer.add(Box.createVerticalStrut(8));
+        navButtonsContainer.add(btnFinance);
         navButtonsContainer.add(Box.createVerticalGlue());
 
         navPanel.add(navButtonsContainer);
         add(navPanel, BorderLayout.WEST);
 
-        // Right cards (CardLayout)
+        // ---------- CardLayout (Right content area) ----------
         cards.setBackground(Theme.BACKGROUND);
-        // wrap each panel in a RoundedPanel for nicer card surface & padding
         cards.add(wrapInPadding(dashboardPanel), "dashboard");
         cards.add(wrapInPadding(catalogPanel), "catalog");
         cards.add(wrapInPadding(timetablePanel), "timetable");
         cards.add(wrapInPadding(transcriptPanel), "transcript");
+        cards.add(wrapInPadding(myCoursesPanel), "mycourses");
+        cards.add(wrapInPadding(gradesPanel), "grades");
+        cards.add(wrapInPadding(financePanel), "finance");
 
         add(cards, BorderLayout.CENTER);
 
-        // listeners: instant movement + show card
+        // ---------- Sidebar Button Actions ----------
         btnDashboard.addActionListener(e -> { setNavActive(btnDashboard); showCard("dashboard"); });
         btnCatalog.addActionListener(e -> { setNavActive(btnCatalog); showCard("catalog"); });
         btnTimetable.addActionListener(e -> { setNavActive(btnTimetable); showCard("timetable"); });
         btnTranscript.addActionListener(e -> { setNavActive(btnTranscript); showCard("transcript"); });
+        btnMyCourses.addActionListener(e -> { setNavActive(btnMyCourses); showCard("mycourses"); });
+        btnGrades.addActionListener(e -> { setNavActive(btnGrades); showCard("grades"); });
+        btnFinance.addActionListener(e -> { setNavActive(btnFinance); showCard("finance"); });
 
-        // mark dashboard active after UI is realized (avoids early-layout issues)
+        // ---------- Listener wiring for course registration refresh ----------
+        catalogPanel.setRegistrationListener(() -> {
+            timetablePanel.reloadForStudent();
+            transcriptPanel.reloadForStudent();
+            dashboardPanel.loadData(studentId);
+        });
+
+        // Mark dashboard active after UI loads
         SwingUtilities.invokeLater(() -> {
             setNavActive(btnDashboard);
             showCard("dashboard");
         });
 
-        // poll maintenance flag
+        // ---------- Maintenance polling ----------
         pollTimer = new javax.swing.Timer(10_000, e -> refreshMaintenance());
         pollTimer.start();
     }
@@ -130,19 +154,14 @@ public class StudentPanel extends JPanel {
         return b;
     }
 
-    /**
-     * Simple, flat active style (no slider).
-     */
+    /** Simple, flat active style (no slider). */
     private void setNavActive(AbstractButton active) {
-        // reset all buttons to default sidebar style
         for (Component c : navButtonsContainer.getComponents()) {
             if (c instanceof AbstractButton) {
                 c.setBackground(Theme.SIDEBAR_BG);
                 ((AbstractButton) c).setForeground(Color.WHITE);
             }
         }
-
-        // highlight the active button with flat background
         active.setBackground(Theme.SIDEBAR_ACTIVE);
         active.setForeground(Color.WHITE);
     }
@@ -152,10 +171,7 @@ public class StudentPanel extends JPanel {
         cl.show(cards, name);
     }
 
-    /**
-     * Wrap a component in a rounded white surface with consistent padding.
-     * Ensures every card has the same look/spacing.
-     */
+    /** Wrap each content panel in a rounded padded surface for uniform look. */
     private JComponent wrapInPadding(JComponent c) {
         RoundedPanel p = new RoundedPanel(Theme.BORDER_RADIUS);
         p.setLayout(new BorderLayout());
@@ -166,19 +182,24 @@ public class StudentPanel extends JPanel {
         return p;
     }
 
+    /** Propagate logged-in student ID to all subpanels. */
     public void setStudentId(String studentId) {
         this.studentId = studentId;
-        // propagate
+
         dashboardPanel.loadData(studentId);
         catalogPanel.setStudentId(studentId);
         timetablePanel.setStudentId(studentId);
         transcriptPanel.setStudentId(studentId);
+        financePanel.setStudentId(studentId);
+        gradesPanel.setStudentId(studentId);
+        myCoursesPanel.setStudentId(studentId);
 
         catalogPanel.reloadFromDb(null);
         timetablePanel.reloadForStudent();
         transcriptPanel.reloadForStudent();
     }
 
+    /** Checks if maintenance mode is active and disables actions. */
     public void refreshMaintenance() {
         new SwingWorker<Boolean, Void>() {
             @Override
@@ -196,10 +217,14 @@ public class StudentPanel extends JPanel {
                 try {
                     boolean maintenance = get();
                     maintenanceBanner.setVisible(maintenance);
+
                     catalogPanel.setActionsEnabled(!maintenance);
                     timetablePanel.setActionsEnabled(!maintenance);
                     transcriptPanel.setActionsEnabled(!maintenance);
                     dashboardPanel.setActionsEnabled(!maintenance);
+                    gradesPanel.setEnabled(!maintenance);
+                    financePanel.setEnabled(!maintenance);
+                    myCoursesPanel.setEnabled(!maintenance);
                 } catch (Exception ignore) {}
             }
         }.execute();

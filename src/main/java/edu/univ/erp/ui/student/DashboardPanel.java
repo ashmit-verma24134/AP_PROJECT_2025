@@ -1,232 +1,202 @@
 package edu.univ.erp.ui.student;
 
-import edu.univ.erp.service.StudentService;
-import edu.univ.erp.service.StudentSummary;
-import edu.univ.erp.service.SemesterRecord;
+import javax.swing.*;
+import java.awt.*;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
-import org.jfree.chart.plot.PiePlot;
 import org.jfree.data.general.DefaultPieDataset;
+import edu.univ.erp.ui.Theme;
+import edu.univ.erp.ui.RoundedPanel;
 
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import java.awt.*;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
-/**
- * Modern dashboard panel: header + metric cards + grade pie.
- * Call loadData(studentId) to refresh values.
- */
 public class DashboardPanel extends JPanel {
-    private final JLabel welcomeLabel = new JLabel("Welcome, Student!");
-    private final JLabel subLabel = new JLabel("Student Portal");
-    private final JPanel cardsContainer = new JPanel();
-    private final JPanel chartContainer = new JPanel(new BorderLayout());
-    private final StudentService studentService = new StudentService();
-
-    // metric labels (updated in loadData)
-    private final JLabel creditsLabel = new JLabel("0", SwingConstants.CENTER);
-    private final JLabel cgpaLabel = new JLabel("N/A", SwingConstants.CENTER);
-    private final JLabel coursesThisTermLabel = new JLabel("0", SwingConstants.CENTER);
-    private final JLabel creditsEarnedLabel = new JLabel("0", SwingConstants.CENTER);
-
-    private String studentId;
 
     public DashboardPanel() {
         setLayout(new BorderLayout());
         setBackground(Color.WHITE);
-        initHeader();
-        initCards();
-        initChartArea();
-    }
 
-    private void initHeader() {
-        JPanel header = new JPanel(new BorderLayout());
-        header.setBackground(new Color(0xEFFAF9)); // soft teal background
-        header.setBorder(BorderFactory.createEmptyBorder(12, 16, 12, 16));
+        // Top header bar
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBackground(Theme.PRIMARY);
+        headerPanel.setPreferredSize(new Dimension(100, 70));
 
+        JLabel welcomeLabel = new JLabel("👋 Welcome, Rahul Kumar!");
         welcomeLabel.setFont(new Font("Segoe UI", Font.BOLD, 20));
-        subLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        subLabel.setForeground(Color.DARK_GRAY);
+        welcomeLabel.setForeground(Color.WHITE);
+        welcomeLabel.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 15));
+        headerPanel.add(welcomeLabel, BorderLayout.WEST);
+        add(headerPanel, BorderLayout.NORTH);
 
-        JPanel left = new JPanel(new GridLayout(2, 1));
-        left.setOpaque(false);
-        left.add(welcomeLabel);
-        left.add(subLabel);
+        // Main content area
+        JPanel contentPanel = new JPanel();
+        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+        contentPanel.setBackground(Color.WHITE);
 
-        header.add(left, BorderLayout.WEST);
+        // === Stats Row ===
+        JPanel statsPanel = new JPanel(new GridLayout(1, 4, 15, 15));
+        statsPanel.setBackground(Color.WHITE);
+        statsPanel.setBorder(BorderFactory.createEmptyBorder(25, 25, 25, 25));
 
-        add(header, BorderLayout.NORTH);
+        statsPanel.add(createStatCard("Registered Credits", "20"));
+        statsPanel.add(createStatCard("Current CGPA", "9.15"));
+        statsPanel.add(createStatCard("Courses This Term", "5"));
+        statsPanel.add(createStatCard("Credits Earned", "88"));
+
+        contentPanel.add(statsPanel);
+
+        // === Grade Distribution Chart ===
+        JLabel chartLabel = new JLabel("Grade Distribution (Cumulative)");
+        chartLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        chartLabel.setBorder(BorderFactory.createEmptyBorder(10, 25, 10, 10));
+
+        DefaultPieDataset dataset = new DefaultPieDataset();
+        dataset.setValue("A+ (10): 33%", 33);
+        dataset.setValue("A (9): 25%", 25);
+        dataset.setValue("B+ (8): 17%", 17);
+        dataset.setValue("B (7): 13%", 13);
+        dataset.setValue("C+ (6): 8%", 8);
+        dataset.setValue("C (5): 4%", 4);
+
+        JFreeChart pieChart = ChartFactory.createPieChart("", dataset, false, true, false);
+        ChartPanel chartPanel = new ChartPanel(pieChart);
+        chartPanel.setPreferredSize(new Dimension(600, 300));
+        chartPanel.setBackground(Color.WHITE);
+
+        RoundedPanel chartContainer = new RoundedPanel(25, Theme.CARD_BG);
+        chartContainer.setLayout(new BorderLayout());
+        chartContainer.add(chartLabel, BorderLayout.NORTH);
+        chartContainer.add(chartPanel, BorderLayout.CENTER);
+        chartContainer.setBorder(BorderFactory.createEmptyBorder(15, 25, 25, 25));
+
+        contentPanel.add(chartContainer);
+
+        // === Announcements Section ===
+        JLabel announceLabel = new JLabel("Important Announcements 📢");
+        announceLabel.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        announceLabel.setBorder(BorderFactory.createEmptyBorder(20, 25, 10, 10));
+        contentPanel.add(announceLabel);
+
+        JPanel announcePanel = new JPanel();
+        announcePanel.setLayout(new BoxLayout(announcePanel, BoxLayout.Y_AXIS));
+        announcePanel.setBackground(Color.WHITE);
+        announcePanel.setBorder(BorderFactory.createEmptyBorder(0, 25, 25, 25));
+
+        Map<String, String[]> announcements = new LinkedHashMap<>();
+        announcements.put("End-Sem Dates Tentative", new String[]{
+                "The tentative schedule for End-Semester Examinations for the Monsoon 2025 term has been released.",
+                "Urgent", "Nov 10, 2025"});
+        announcements.put("Fee Payment Reminder", new String[]{
+                "The last date for paying the hostel and mess fees is Nov 15, 2025.",
+                "Urgent", "Nov 8, 2025"});
+        announcements.put("Faculty Office Hours Update", new String[]{
+                "Dr. Anjali's office hours have changed starting next week.",
+                "Info", "Nov 5, 2025"});
+        announcements.put("Library Extended Hours", new String[]{
+                "The library will now remain open until midnight during the examination period.",
+                "Info", "Nov 3, 2025"});
+
+        for (Map.Entry<String, String[]> entry : announcements.entrySet()) {
+            announcePanel.add(createAnnouncementCard(
+                    entry.getKey(),
+                    entry.getValue()[0],
+                    entry.getValue()[1],
+                    entry.getValue()[2]
+            ));
+        }
+
+        contentPanel.add(announcePanel);
+        add(contentPanel, BorderLayout.CENTER);
     }
 
-    private JPanel card(String title, JLabel value) {
-        JPanel p = new JPanel(new BorderLayout());
-        p.setBackground(Color.WHITE);
-        p.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(0xE6F2F1), 1),
-                new EmptyBorder(12, 12, 12, 12)
-        ));
-        JLabel t = new JLabel(title);
-        t.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        value.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        value.setForeground(new Color(0x00796b)); // teal accent
-        p.add(t, BorderLayout.NORTH);
-        p.add(value, BorderLayout.CENTER);
-        return p;
+    private JPanel createStatCard(String title, String value) {
+        RoundedPanel card = new RoundedPanel(20, Theme.CARD_BG);
+        card.setLayout(new BorderLayout());
+        card.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        titleLabel.setForeground(new Color(90, 90, 90));
+
+        JLabel valueLabel = new JLabel(value);
+        valueLabel.setFont(new Font("Segoe UI", Font.BOLD, 26));
+        valueLabel.setForeground(Color.BLACK);
+
+        card.add(titleLabel, BorderLayout.NORTH);
+        card.add(valueLabel, BorderLayout.CENTER);
+        return card;
     }
 
-    private void initCards() {
-        cardsContainer.setLayout(new GridLayout(1, 4, 12, 12));
-        cardsContainer.setBorder(new EmptyBorder(16, 16, 16, 16));
-        cardsContainer.setOpaque(false);
+    private JPanel createAnnouncementCard(String title, String desc, String tag, String date) {
+        JPanel card = new JPanel(new BorderLayout());
+        card.setBackground(Color.WHITE);
+        card.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(230, 230, 230)));
 
-        cardsContainer.add(card("Registered Credits", creditsLabel));
-        cardsContainer.add(card("Current CGPA", cgpaLabel));
-        cardsContainer.add(card("Courses This Term", coursesThisTermLabel));
-        cardsContainer.add(card("Credits Earned", creditsEarnedLabel));
+        JPanel textPanel = new JPanel();
+        textPanel.setLayout(new BoxLayout(textPanel, BoxLayout.Y_AXIS));
+        textPanel.setBackground(Color.WHITE);
 
-        add(cardsContainer, BorderLayout.CENTER);
+        JLabel titleLabel = new JLabel(title + "  ");
+        titleLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
+
+        JLabel tagLabel = new JLabel(tag);
+        tagLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        tagLabel.setOpaque(true);
+        tagLabel.setForeground(Color.WHITE);
+        tagLabel.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        if (tag.equalsIgnoreCase("Urgent"))
+            tagLabel.setBackground(new Color(220, 53, 69));
+        else
+            tagLabel.setBackground(new Color(0, 123, 255));
+
+        JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        headerPanel.setBackground(Color.WHITE);
+        headerPanel.add(titleLabel);
+        headerPanel.add(tagLabel);
+
+        JLabel descLabel = new JLabel("<html><p style='width:500px;'>" + desc + "</p></html>");
+        descLabel.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+
+        JLabel dateLabel = new JLabel(date);
+        dateLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+        dateLabel.setForeground(new Color(120, 120, 120));
+
+        textPanel.add(headerPanel);
+        textPanel.add(descLabel);
+
+        card.add(textPanel, BorderLayout.CENTER);
+        card.add(dateLabel, BorderLayout.EAST);
+
+        return card;
     }
 
-    /**
-     * Enable/disable interactive components in this panel.
-     * Keeps labels enabled so info remains visible when UI is "view only".
-     */
     public void setActionsEnabled(boolean enabled) {
-        setEnabledRecursive(this, enabled);
-    }
+    // If your dashboard has buttons or interactive controls, disable them here
+    // For example:
+    // myButton.setEnabled(enabled);
+    // myChartPanel.setEnabled(enabled);
 
-    private void setEnabledRecursive(Component comp, boolean enabled) {
-        if (comp instanceof JLabel) {
-            comp.setEnabled(true);
-        } else {
-            comp.setEnabled(enabled);
-        }
-        if (comp instanceof Container) {
-            for (Component child : ((Container) comp).getComponents()) {
-                setEnabledRecursive(child, enabled);
-            }
-        }
-    }
+    // If it’s mostly static content, you can leave it empty for now:
+}
 
-    private void initChartArea() {
-        chartContainer.setBorder(new EmptyBorder(8, 16, 16, 16));
-        chartContainer.setBackground(Color.WHITE);
+public void loadData(String studentId) {
+    // This method will be called whenever a student logs in.
+    // You can use the studentId to load personalized dashboard data, e.g.:
+    //
+    // - Show total registered courses
+    // - Display outstanding fees
+    // - Show GPA or upcoming deadlines
+    //
+    // For now, we can just store it or print it for debugging.
 
-        // placeholder empty chart
-        DefaultPieDataset ds = new DefaultPieDataset();
-        ds.setValue("No data", 1);
-        JFreeChart chart = ChartFactory.createPieChart("", ds, false, false, false);
-        ChartPanel cp = new ChartPanel(chart);
-        cp.setPreferredSize(new Dimension(900, 360));
-        cp.setOpaque(false);
+    System.out.println("Loading dashboard data for student: " + studentId);
 
-        chartContainer.add(cp, BorderLayout.CENTER);
-        add(chartContainer, BorderLayout.SOUTH);
-    }
+    // TODO: Replace this with actual logic to fetch dashboard stats from DB.
+    // Example:
+    // StudentService svc = new StudentService();
+    // Map<String, Object> dashboardData = svc.getDashboardData(studentId);
+    // updateDashboardUI(dashboardData);
+}
 
-    /**
-     * Fetch and populate data asynchronously.
-     */
-    public void loadData(String studentId) {
-        this.studentId = studentId;
-
-        // set temporary UI state
-        welcomeLabel.setText("Welcome, Student!");
-        subLabel.setText("Student Portal");
-        creditsLabel.setText("0");
-        cgpaLabel.setText("N/A");
-        coursesThisTermLabel.setText("0");
-        creditsEarnedLabel.setText("0");
-
-        new SwingWorker<Void, Void>() {
-            StudentSummary summary = null;
-            List<SemesterRecord> sems = null;
-
-            @Override
-            protected Void doInBackground() {
-                try {
-                    long sid = Long.parseLong(studentId);
-                    summary = studentService.getStudentSummaryById(sid);
-                    sems = studentService.getSemestersUpToCurrent(sid);
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                }
-                return null;
-            }
-
-            @Override
-            protected void done() {
-                // update header + cards
-                if (summary != null) {
-                    welcomeLabel.setText("Welcome, " + (summary.getFullName() == null ? "Student" : summary.getFullName()) + "!");
-                    subLabel.setText(summary.getProgram() == null ? "" : summary.getProgram());
-                    cgpaLabel.setText(summary.getCurrentCgpa() == null ? "N/A" : String.format("%.2f", summary.getCurrentCgpa()));
-                } else {
-                    cgpaLabel.setText("N/A");
-                }
-
-                // simple demo aggregation (replace with real values from service)
-                int coursesThisTerm = 0;
-                int regCredits = 0;
-                double creditsEarned = 0.0;
-                if (sems != null && !sems.isEmpty()) {
-                    // derive demo values — replace with your actual logic
-                    SemesterRecord last = sems.get(sems.size() - 1);
-                    coursesThisTerm = last.getCourseCount() == null ? sems.size() : last.getCourseCount();
-                    regCredits = last.getRegisteredCredits() == null ? 0 : last.getRegisteredCredits();
-                }
-
-                creditsLabel.setText(String.valueOf(regCredits));
-                coursesThisTermLabel.setText(String.valueOf(coursesThisTerm));
-                creditsEarnedLabel.setText(String.valueOf((int) creditsEarned));
-
-                // Build demo grade map (replace by real aggregation)
-                Map<String, Integer> gradeMap = new LinkedHashMap<>();
-                gradeMap.put("A+", 33);
-                gradeMap.put("A", 25);
-                gradeMap.put("B+", 17);
-                gradeMap.put("B", 13);
-                gradeMap.put("C+", 8);
-                gradeMap.put("C", 4);
-
-                DefaultPieDataset ds = new DefaultPieDataset();
-                for (Map.Entry<String, Integer> e : gradeMap.entrySet())
-                    ds.setValue(e.getKey() + " (" + e.getValue() + ")", e.getValue());
-
-                JFreeChart chart = ChartFactory.createPieChart(
-                        "Grade Distribution (Cumulative)",
-                        ds,
-                        false, // legend off (we render labels)
-                        false,
-                        false
-                );
-
-                PiePlot plot = (PiePlot) chart.getPlot();
-                plot.setBackgroundPaint(Color.WHITE);
-                plot.setOutlineVisible(false);
-                plot.setSimpleLabels(true);
-                plot.setInteriorGap(0.04);
-                plot.setLabelGap(0.02);
-                // set pleasant colors
-                plot.setSectionPaint("A+ (33)", new Color(15, 130, 120));
-                plot.setSectionPaint("A (25)", new Color(38, 183, 173));
-                plot.setSectionPaint("B+ (17)", new Color(117, 222, 210));
-                plot.setSectionPaint("B (13)", new Color(173, 240, 231));
-                plot.setSectionPaint("C+ (8)", new Color(120, 120, 120));
-                plot.setSectionPaint("C (4)", new Color(160, 160, 160));
-
-                chartContainer.removeAll();
-                ChartPanel cp = new ChartPanel(chart);
-                cp.setPreferredSize(new Dimension(900, 360));
-                cp.setOpaque(false);
-                chartContainer.add(cp, BorderLayout.CENTER);
-                chartContainer.revalidate();
-                chartContainer.repaint();
-            }
-        }.execute();
-    }
 }

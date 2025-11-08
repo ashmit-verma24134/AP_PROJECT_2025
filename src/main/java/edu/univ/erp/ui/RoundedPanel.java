@@ -8,9 +8,19 @@ import java.awt.*;
  */
 public class RoundedPanel extends JPanel {
     private final int arc;
+
+    /** Constructor with just radius */
     public RoundedPanel(int arc) {
         super();
         this.arc = arc;
+        setOpaque(false);
+    }
+
+    /** ✅ New constructor with radius + background color */
+    public RoundedPanel(int arc, Color bgColor) {
+        super();
+        this.arc = arc;
+        setBackground(bgColor);
         setOpaque(false);
     }
 
@@ -20,10 +30,11 @@ public class RoundedPanel extends JPanel {
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setColor(getBackground());
-            g2.fillRoundRect(0,0,getWidth(),getHeight(), arc, arc);
+            g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
         } finally {
             g2.dispose();
         }
         super.paintComponent(g);
     }
 }
+

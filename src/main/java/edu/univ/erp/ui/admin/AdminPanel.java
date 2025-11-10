@@ -1,75 +1,108 @@
 package edu.univ.erp.ui.admin;
 
 import edu.univ.erp.ui.MainFrame;
+import edu.univ.erp.ui.RoundedPanel;
+import edu.univ.erp.ui.Theme;
+import edu.univ.erp.ui.AnimatedSidebarButton;
+
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
+/**
+ * AdminPanel – unified design (matching Student and Instructor portals)
+ * Uses sidebar + top bar layout with CardLayout for dynamic page switching.
+ */
 public class AdminPanel extends JPanel {
+
     private final JPanel cards = new JPanel(new CardLayout());
+    private final Map<String, JPanel> pages = new LinkedHashMap<>();
 
-    public AdminPanel(MainFrame main) {
+    public AdminPanel(MainFrame mainFrame) {
         setLayout(new BorderLayout());
+        setBackground(Theme.BACKGROUND);
 
-        // ===== Top Header (Temporary Navigation Buttons) =====
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton dashboardBtn = new JButton("Dashboard");
-        JButton addStudentBtn = new JButton("Add Student");
-        JButton instructorsBtn = new JButton("Instructors");
-        JButton studentsBtn = new JButton("Students");
-        JButton deptBtn = new JButton("Departments");
-        JButton coursesBtn = new JButton("Courses");
-        JButton monitoringBtn = new JButton("Monitoring");
+        // ===== Top Header Bar =====
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBackground(Theme.PRIMARY);
+        header.setBorder(new EmptyBorder(8, 16, 8, 16));
 
-        // Assign actions
-        dashboardBtn.addActionListener(e -> showCard("Dashboard"));
-        addStudentBtn.addActionListener(e -> showCard("AddStudent"));
-        instructorsBtn.addActionListener(e -> showCard("Instructors"));
-        studentsBtn.addActionListener(e -> showCard("Students"));
-        deptBtn.addActionListener(e -> showCard("Departments"));
-        coursesBtn.addActionListener(e -> showCard("Courses"));
-        monitoringBtn.addActionListener(e -> showCard("Monitoring"));
+        JLabel title = new JLabel("🧭 IIITD Portal – Admin ERP");
+        title.setFont(Theme.HEADER_FONT);
+        title.setForeground(Color.WHITE);
 
-        // Add to top bar
-        top.add(dashboardBtn);
-        top.add(addStudentBtn);
-        top.add(instructorsBtn);
-        top.add(studentsBtn);
-        top.add(deptBtn);
-        top.add(coursesBtn);
-        top.add(monitoringBtn);
+        JButton logout = new JButton("Logout");
+        logout.setBackground(Theme.PRIMARY_DARK);
+        logout.setForeground(Color.WHITE);
+        logout.setFocusPainted(false);
+        logout.setFont(Theme.BODY_BOLD);
+        logout.addActionListener(e -> mainFrame.showCard("login"));
 
-        add(top, BorderLayout.NORTH);
+        header.add(title, BorderLayout.WEST);
+        header.add(logout, BorderLayout.EAST);
 
-        // ===== Create Pages =====
-        JPanel dashboard = new AdminDashboardPanel();
-        JPanel addStudent = new AddStudentPanel();
-        JPanel instructors = new InstructorManagementPanel();
-        JPanel students = new StudentOverviewPanel();
-        JPanel departments = new DepartmentStatsPanel();
-        JPanel courses = new CourseDistributionPanel();
-        JPanel monitoring = new SystemMonitoringPanel();
+        add(header, BorderLayout.NORTH);
 
-        // ===== Register Panels in Card Layout =====
-        cards.add(dashboard, "Dashboard");
-        cards.add(addStudent, "AddStudent");
-        cards.add(instructors, "Instructors");
-        cards.add(students, "Students");
-        cards.add(departments, "Departments");
-        cards.add(courses, "Courses");
-        cards.add(monitoring, "Monitoring");
+        // ===== Sidebar Navigation =====
+        JPanel sidebar = new JPanel();
+        sidebar.setLayout(new BoxLayout(sidebar, BoxLayout.Y_AXIS));
+        sidebar.setBackground(Theme.SIDEBAR_BG);
+        sidebar.setPreferredSize(new Dimension(Theme.SIDEBAR_WIDTH, 0));
+        sidebar.setBorder(new EmptyBorder(24, 12, 24, 12));
+
+        JLabel portalLabel = new JLabel("Admin Portal");
+        portalLabel.setFont(Theme.TITLE_FONT);
+        portalLabel.setForeground(Color.WHITE);
+        portalLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        portalLabel.setBorder(new EmptyBorder(0, 0, 16, 0));
+        sidebar.add(portalLabel);
+
+        sidebar.add(Box.createRigidArea(new Dimension(0, 8)));
+
+        // ===== Define Navigation Buttons =====
+        Map<String, String> navItems = Map.of(
+                "Dashboard", "Dashboard",
+                "Add Student", "AddStudent",
+                "Instructors", "Instructors",
+                "Students", "Students",
+                "Departments", "Departments",
+                "Courses", "Courses",
+                "Monitoring", "Monitoring"
+        );
+
+        ButtonGroup navGroup = new ButtonGroup();
+
+        for (Map.Entry<String, String> entry : navItems.entrySet()) {
+            AnimatedSidebarButton btn = new AnimatedSidebarButton(entry.getKey());
+            btn.addActionListener(e -> showCard(entry.getValue()));
+            sidebar.add(btn);
+            sidebar.add(Box.createVerticalStrut(6));
+            navGroup.add(btn);
+        }
+
+        add(sidebar, BorderLayout.WEST);
+
+        // ===== Main Content (CardLayout) =====
+        cards.setOpaque(false);
+
+        pages.put("Dashboard", new AdminDashboardPanel());
+        pages.put("AddStudent", new AddStudentPanel());
+        pages.put("Instructors", new InstructorManagementPanel());
+        pages.put("Students", new StudentOverviewPanel());
+        pages.put("Departments", new DepartmentStatsPanel());
+        pages.put("Courses", new CourseDistributionPanel());
+        pages.put("Monitoring", new SystemMonitoringPanel());
+
+        for (Map.Entry<String, JPanel> entry : pages.entrySet()) {
+            cards.add(entry.getValue(), entry.getKey());
+        }
 
         add(cards, BorderLayout.CENTER);
 
-        // ===== Logout Section =====
-        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton logout = new JButton("Logout");
-        logout.addActionListener(e -> main.showCard("login"));
-        south.add(logout);
-        add(south, BorderLayout.SOUTH);
-
         // ===== Show Dashboard by Default =====
-        CardLayout cl = (CardLayout) cards.getLayout();
-        cl.show(cards, "Dashboard");
+        showCard("Dashboard");
     }
 
     private void showCard(String name) {

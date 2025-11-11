@@ -2,14 +2,9 @@ package edu.univ.erp.ui.student;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import org.jfree.chart.ChartFactory;
-import org.jfree.chart.ChartPanel;
-import org.jfree.chart.JFreeChart;
-import org.jfree.data.general.DefaultPieDataset;
+import javax.swing.border.*;
+import com.formdev.flatlaf.FlatClientProperties;
 import edu.univ.erp.ui.Theme;
-import edu.univ.erp.ui.RoundedPanel;
 
 public class DashboardPanel extends JPanel {
 
@@ -17,192 +12,220 @@ public class DashboardPanel extends JPanel {
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
-        // === HEADER BAR ===
-        JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(Theme.PRIMARY);
-        headerPanel.setPreferredSize(new Dimension(100, 70));
+        // Sidebar (fixed)
+        add(createSidebar(), BorderLayout.WEST);
 
-        JLabel welcomeLabel = new JLabel("👋 Welcome, Rahul Kumar!");
-        welcomeLabel.setFont(new Font("Segoe UI Semibold", Font.BOLD, 22));
-        welcomeLabel.setForeground(Color.WHITE);
-        welcomeLabel.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 15));
-        headerPanel.add(welcomeLabel, BorderLayout.WEST);
-        add(headerPanel, BorderLayout.NORTH);
-
-        // === MAIN CONTENT (SCROLLABLE) ===
-        JPanel contentPanel = new JPanel();
-        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setBackground(Theme.BACKGROUND);
-        JScrollPane scrollPane = new JScrollPane(contentPanel);
+        // Scrollable main area
+        JScrollPane scrollPane = new JScrollPane(createDashboardContent());
         scrollPane.setBorder(null);
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        scrollPane.getViewport().setBackground(Theme.BACKGROUND);
         add(scrollPane, BorderLayout.CENTER);
+    }
 
-        // === STAT CARDS ===
-        JPanel statsPanel = new JPanel(new GridLayout(1, 4, 15, 15));
-        statsPanel.setBackground(Theme.BACKGROUND);
-        statsPanel.setBorder(BorderFactory.createEmptyBorder(25, 25, 10, 25));
+    // ---------------- SIDEBAR ---------------- //
+    private JPanel createSidebar() {
+        JPanel sidebar = new JPanel(new BorderLayout());
+        sidebar.setPreferredSize(new Dimension(240, 0));
+        sidebar.setBackground(Theme.SIDEBAR_BG);
 
-        statsPanel.add(createStatCard("🎓 Registered Credits", "20", new Color(56, 142, 60)));
-        statsPanel.add(createStatCard("📈 Current CGPA", "9.15", new Color(25, 118, 210)));
-        statsPanel.add(createStatCard("📚 Courses This Term", "5", new Color(255, 152, 0)));
-        statsPanel.add(createStatCard("⭐ Credits Earned", "88", new Color(233, 30, 99)));
+        // Logo section
+        JLabel logo = new JLabel("<html><center><h2 style='color:#2FB6AD;'>IIITD</h2><small style='color:#FFFFFF99;'>Student Portal</small></center></html>", SwingConstants.CENTER);
+        logo.setBorder(new EmptyBorder(25, 0, 25, 0));
+        sidebar.add(logo, BorderLayout.NORTH);
 
-        contentPanel.add(statsPanel);
+        // Sidebar buttons
+        String[] menuItems = {"Dashboard", "Course Catalog", "Timetable", "My Grades", "My Courses", "My Finances", "Transcript"};
+        JPanel menuPanel = new JPanel();
+        menuPanel.setLayout(new GridLayout(0, 1, 0, 5));
+        menuPanel.setBackground(Theme.SIDEBAR_BG);
 
-        // === GRADE DISTRIBUTION CHART ===
-        DefaultPieDataset dataset = new DefaultPieDataset();
-        dataset.setValue("A+ (10)", 33);
-        dataset.setValue("A (9)", 25);
-        dataset.setValue("B+ (8)", 17);
-        dataset.setValue("B (7)", 13);
-        dataset.setValue("C+ (6)", 8);
-        dataset.setValue("C (5)", 4);
+        for (String item : menuItems) {
+            JButton btn = new JButton(item);
+            btn.setFocusPainted(false);
+            btn.setContentAreaFilled(false);
+            btn.setOpaque(true);
+            btn.setHorizontalAlignment(SwingConstants.LEFT);
+            btn.setBorder(BorderFactory.createEmptyBorder(10, 25, 10, 0));
+            btn.setFont(Theme.BODY_FONT);
+            btn.setBackground(Theme.SIDEBAR_BG);
+            btn.setForeground(Color.WHITE);
 
-        JFreeChart pieChart = ChartFactory.createPieChart(
-                "Grade Distribution (Cumulative)",
-                dataset,
-                true, true, false);
+            btn.addChangeListener(e -> {
+                if (btn.getModel().isRollover())
+                    btn.setBackground(Theme.PRIMARY_DARK);
+                else
+                    btn.setBackground(Theme.SIDEBAR_BG);
+            });
 
-        ChartPanel chartPanel = new ChartPanel(pieChart);
-        chartPanel.setPreferredSize(new Dimension(700, 300));
-        chartPanel.setBackground(Color.WHITE);
-
-        RoundedPanel chartContainer = new RoundedPanel(25);
-        chartContainer.setBackground(Theme.CARD_BG);
-        chartContainer.setLayout(new BorderLayout());
-        chartContainer.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-        chartContainer.add(chartPanel, BorderLayout.CENTER);
-
-        JLabel chartLabel = new JLabel("📊 Grade Distribution (Cumulative)");
-        chartLabel.setFont(new Font("Segoe UI", Font.BOLD, 17));
-        chartLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
-        chartContainer.add(chartLabel, BorderLayout.NORTH);
-
-        JPanel chartWrap = new JPanel(new BorderLayout());
-        chartWrap.setBackground(Theme.BACKGROUND);
-        chartWrap.setBorder(BorderFactory.createEmptyBorder(10, 25, 10, 25));
-        chartWrap.add(chartContainer, BorderLayout.CENTER);
-        contentPanel.add(chartWrap);
-
-        // === ANNOUNCEMENTS SECTION ===
-        JLabel announceHeader = new JLabel("📢 Important Announcements");
-        announceHeader.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        announceHeader.setBorder(BorderFactory.createEmptyBorder(15, 25, 5, 10));
-        contentPanel.add(announceHeader);
-
-        JPanel announcePanel = new JPanel();
-        announcePanel.setLayout(new BoxLayout(announcePanel, BoxLayout.Y_AXIS));
-        announcePanel.setBackground(Theme.BACKGROUND);
-        announcePanel.setBorder(BorderFactory.createEmptyBorder(0, 25, 25, 25));
-
-        Map<String, String[]> announcements = new LinkedHashMap<>();
-        announcements.put("End-Sem Dates Tentative", new String[]{
-                "The tentative schedule for End-Semester Examinations for the Monsoon 2025 term has been released.",
-                "Urgent", "Nov 10, 2025"});
-        announcements.put("Fee Payment Reminder", new String[]{
-                "The last date for paying the hostel and mess fees is Nov 15, 2025.",
-                "Urgent", "Nov 8, 2025"});
-        announcements.put("Faculty Office Hours Update", new String[]{
-                "Dr. Anjali's office hours have changed starting next week.",
-                "Info", "Nov 5, 2025"});
-        announcements.put("Library Extended Hours", new String[]{
-                "The library will now remain open until midnight during the examination period.",
-                "Info", "Nov 3, 2025"});
-
-        for (Map.Entry<String, String[]> entry : announcements.entrySet()) {
-            announcePanel.add(createAnnouncementCard(
-                    entry.getKey(),
-                    entry.getValue()[0],
-                    entry.getValue()[1],
-                    entry.getValue()[2]
-            ));
+            menuPanel.add(btn);
         }
 
-        RoundedPanel announceContainer = new RoundedPanel(25);
-        announceContainer.setBackground(Theme.CARD_BG);
-        announceContainer.setLayout(new BorderLayout());
-        announceContainer.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
-        announceContainer.add(announcePanel, BorderLayout.CENTER);
-        contentPanel.add(announceContainer);
+        sidebar.add(menuPanel, BorderLayout.CENTER);
+
+        // Footer user info
+        JLabel user = new JLabel("<html><center><b style='color:white;'>John Smith</b><br><small style='color:#CCCCCC;'>2021CS101</small></center></html>", SwingConstants.CENTER);
+        user.setBorder(new EmptyBorder(20, 0, 20, 0));
+        sidebar.add(user, BorderLayout.SOUTH);
+
+        return sidebar;
     }
 
-    /** Creates a rounded stat card with icon, title, and value */
-    private JPanel createStatCard(String title, String value, Color color) {
-        RoundedPanel card = new RoundedPanel(25);
-        card.setBackground(Theme.CARD_BG);
-        card.setLayout(new BorderLayout());
-        card.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
+    // ---------------- MAIN CONTENT ---------------- //
+    private JPanel createDashboardContent() {
+        JPanel main = new JPanel();
+        main.setLayout(new BoxLayout(main, BoxLayout.Y_AXIS));
+        main.setBackground(Theme.BACKGROUND);
+        main.setBorder(new EmptyBorder(25, 30, 30, 30));
 
-        JLabel iconLabel = new JLabel(title.split(" ")[0]); // Emoji part
-        iconLabel.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 28));
-        iconLabel.setForeground(color);
+        // Header
+        JLabel heading = new JLabel("<html><h1>Dashboard</h1><p>Welcome back, John! Here's your academic overview.</p></html>");
+        heading.setFont(Theme.HEADER_FONT);
+        heading.setForeground(Theme.NEUTRAL_DARK);
+        heading.setAlignmentX(Component.LEFT_ALIGNMENT);
+        main.add(heading);
+        main.add(Box.createVerticalStrut(20));
 
-        JLabel titleLabel = new JLabel(title.substring(title.indexOf(" ") + 1));
-        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        titleLabel.setForeground(new Color(90, 90, 90));
+        // Info cards
+        JPanel infoRow = new JPanel(new GridLayout(1, 4, 20, 10));
+        infoRow.setOpaque(false);
+        infoRow.add(createInfoCard("Current CGPA", "8.76", "+0.12 from last semester", Theme.SUCCESS));
+        infoRow.add(createInfoCard("Enrolled Courses", "6", "24 credits this semester", Theme.NEUTRAL_MED));
+        infoRow.add(createInfoCard("Attendance", "94%", "Above 75% requirement", Theme.SUCCESS));
+        infoRow.add(createInfoCard("Pending Fees", "₹0", "All paid up", Theme.SUCCESS));
+        main.add(infoRow);
+        main.add(Box.createVerticalStrut(25));
 
-        JLabel valueLabel = new JLabel(value);
-        valueLabel.setFont(new Font("Segoe UI", Font.BOLD, 26));
-        valueLabel.setForeground(color);
+        // Schedule + Grades row
+        JPanel middle = new JPanel(new GridLayout(1, 2, 20, 10));
+        middle.setOpaque(false);
+        middle.add(createScheduleCard());
+        middle.add(createGradesCard());
+        main.add(middle);
+        main.add(Box.createVerticalStrut(25));
 
-        JPanel textPanel = new JPanel(new GridLayout(2, 1, 2, 2));
-        textPanel.setBackground(Theme.CARD_BG);
-        textPanel.add(titleLabel);
-        textPanel.add(valueLabel);
+        // Announcements section
+        main.add(createAnnouncementsCard());
 
-        card.add(iconLabel, BorderLayout.WEST);
-        card.add(textPanel, BorderLayout.CENTER);
+        // Add some bottom space for scrolling
+        main.add(Box.createVerticalStrut(50));
+
+        return main;
+    }
+
+    private JPanel createInfoCard(String title, String value, String subtitle, Color subColor) {
+        JPanel card = new JPanel(new BorderLayout());
+        card.setBackground(Theme.SURFACE);
+        card.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(Theme.NEUTRAL_LIGHT, 1, true),
+                new EmptyBorder(15, 20, 15, 20)
+        ));
+
+        JLabel lblTitle = new JLabel(title);
+        lblTitle.setFont(Theme.BODY_FONT);
+        lblTitle.setForeground(Theme.NEUTRAL_MED);
+
+        JLabel lblValue = new JLabel(value);
+        lblValue.setFont(new Font("Segoe UI", Font.BOLD, 24));
+        lblValue.setForeground(Theme.NEUTRAL_DARK);
+
+        JLabel lblSub = new JLabel(subtitle);
+        lblSub.setForeground(subColor);
+        lblSub.setFont(Theme.BODY_FONT);
+
+        card.add(lblTitle, BorderLayout.NORTH);
+        card.add(lblValue, BorderLayout.CENTER);
+        card.add(lblSub, BorderLayout.SOUTH);
         return card;
     }
 
-    /** Creates clean announcement cards */
-    private JPanel createAnnouncementCard(String title, String desc, String tag, String date) {
-        RoundedPanel card = new RoundedPanel(15);
-        card.setBackground(Color.WHITE);
-        card.setLayout(new BorderLayout());
-        card.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
-
-        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        header.setBackground(Color.WHITE);
-
-        JLabel titleLabel = new JLabel(title);
-        titleLabel.setFont(new Font("Segoe UI Semibold", Font.BOLD, 14));
-
-        JLabel tagLabel = new JLabel(tag);
-        tagLabel.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        tagLabel.setOpaque(true);
-        tagLabel.setForeground(Color.WHITE);
-        tagLabel.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
-        if (tag.equalsIgnoreCase("Urgent"))
-            tagLabel.setBackground(new Color(220, 53, 69));
-        else
-            tagLabel.setBackground(new Color(33, 150, 243));
-
-        header.add(titleLabel);
-        header.add(tagLabel);
-
-        JLabel descLabel = new JLabel("<html><p style='width:550px;'>" + desc + "</p></html>");
-        descLabel.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        descLabel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
-
-        JLabel dateLabel = new JLabel(date);
-        dateLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
-        dateLabel.setForeground(new Color(120, 120, 120));
-
-        card.add(header, BorderLayout.NORTH);
-        card.add(descLabel, BorderLayout.CENTER);
-        card.add(dateLabel, BorderLayout.SOUTH);
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
-
+    // Section Cards
+    private JPanel createSectionCard(String title) {
+        JPanel card = new JPanel();
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+        card.setBackground(Theme.SURFACE);
+        card.setBorder(BorderFactory.createCompoundBorder(
+                new LineBorder(Theme.NEUTRAL_LIGHT, 1, true),
+                new EmptyBorder(15, 20, 15, 20)
+        ));
+        JLabel lbl = new JLabel("<html><h3>" + title + "</h3></html>");
+        lbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        lbl.setForeground(Theme.NEUTRAL_DARK);
+        card.add(lbl);
+        card.add(Box.createVerticalStrut(10));
         return card;
     }
 
-    public void setActionsEnabled(boolean enabled) {
-        // Optional: disable interactions if maintenance mode
+    private JPanel createScheduleCard() {
+        JPanel card = createSectionCard("Today's Schedule");
+        card.add(createListItem("Data Structures", "Room C-101", "10:00 AM"));
+        card.add(createListItem("Database Systems", "Room C-204", "2:00 PM"));
+        card.add(createListItem("Computer Networks", "Room C-105", "4:00 PM"));
+        return card;
     }
 
-    public void loadData(String studentId) {
-        System.out.println("Loading dashboard data for student: " + studentId);
+    private JPanel createGradesCard() {
+        JPanel card = createSectionCard("Recent Grades");
+        card.add(createGradeItem("Algorithms", "4 Credits", "A"));
+        card.add(createGradeItem("Operating Systems", "4 Credits", "A-"));
+        card.add(createGradeItem("Software Engineering", "3 Credits", "B+"));
+        return card;
+    }
+
+    private JPanel createAnnouncementsCard() {
+        JPanel card = createSectionCard("Announcements");
+        card.add(createAnnouncement("Mid-term Exam Schedule Released", "2 days ago", true));
+        card.add(createAnnouncement("Guest Lecture on AI/ML", "3 days ago", false));
+        card.add(createAnnouncement("Library Hours Extended", "5 days ago", false));
+        return card;
+    }
+
+    // ---------------- LIST ITEMS ---------------- //
+    private JPanel createListItem(String course, String room, String time) {
+        JPanel item = new JPanel(new BorderLayout());
+        item.setBackground(Theme.PRIMARY_LIGHT);
+        item.setBorder(new EmptyBorder(10, 15, 10, 15));
+
+        JLabel lblCourse = new JLabel("<html><b>" + course + "</b><br><small>" + room + "</small></html>");
+        lblCourse.setForeground(Theme.NEUTRAL_DARK);
+
+        JLabel lblTime = new JLabel("<html><b>" + time + "</b><br><small>upcoming</small></html>");
+        lblTime.setForeground(Theme.PRIMARY);
+
+        item.add(lblCourse, BorderLayout.WEST);
+        item.add(lblTime, BorderLayout.EAST);
+        item.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+        return item;
+    }
+
+    private JPanel createGradeItem(String course, String credits, String grade) {
+        JPanel item = new JPanel(new BorderLayout());
+        item.setBackground(Theme.PRIMARY_LIGHT);
+        item.setBorder(new EmptyBorder(10, 15, 10, 15));
+
+        JLabel lblCourse = new JLabel("<html><b>" + course + "</b><br><small>" + credits + "</small></html>");
+        lblCourse.setForeground(Theme.NEUTRAL_DARK);
+
+        JLabel lblGrade = new JLabel("<html><h3 style='color:#2FB6AD;'>" + grade + "</h3></html>");
+        item.add(lblCourse, BorderLayout.WEST);
+        item.add(lblGrade, BorderLayout.EAST);
+        item.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+        return item;
+    }
+
+    private JPanel createAnnouncement(String title, String time, boolean important) {
+        JPanel item = new JPanel(new BorderLayout());
+        item.setBackground(Theme.PRIMARY_LIGHT);
+        item.setBorder(new EmptyBorder(10, 15, 10, 15));
+
+        String text = "<html><b>" + title + "</b><br><small>" + time + "</small></html>";
+        if (important)
+            text += "  <span style='color:white; background-color:#E74C3C; padding:2px 6px; border-radius:3px;'>Important</span>";
+
+        JLabel lbl = new JLabel(text);
+        lbl.setForeground(Theme.NEUTRAL_DARK);
+        item.add(lbl);
+        item.setMaximumSize(new Dimension(Integer.MAX_VALUE, 50));
+        return item;
     }
 }

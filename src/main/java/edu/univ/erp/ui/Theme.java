@@ -1,4 +1,4 @@
-package edu.univ.erp.ui;
+package edu.univ.erp.ui.admin;
 
 import java.awt.*;
 

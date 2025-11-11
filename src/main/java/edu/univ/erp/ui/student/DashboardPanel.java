@@ -84,7 +84,7 @@ public class DashboardPanel extends JPanel {
         JLabel heading = new JLabel("<html><h1>Dashboard</h1><p>Welcome back, John! Here's your academic overview.</p></html>");
         heading.setFont(Theme.HEADER_FONT);
         heading.setForeground(Theme.NEUTRAL_DARK);
-        heading.setAlignmentX(Component.LEFT_ALIGNMENT);
+        heading.setAlignmentX(Component.CENTER_ALIGNMENT);
         main.add(heading);
         main.add(Box.createVerticalStrut(20));
 

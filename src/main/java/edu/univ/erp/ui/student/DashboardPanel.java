@@ -13,7 +13,7 @@ public class DashboardPanel extends JPanel {
         setBackground(Theme.BACKGROUND);
 
         // Sidebar (fixed)
-        add(createSidebar(), BorderLayout.WEST);
+        //add(createSidebar(), BorderLayout.WEST);
 
         // Scrollable main area
         JScrollPane scrollPane = new JScrollPane(createDashboardContent());
@@ -24,7 +24,7 @@ public class DashboardPanel extends JPanel {
     }
 
     // ---------------- SIDEBAR ---------------- //
-    private JPanel createSidebar() {
+    /*private JPanel createSidebar() {
         JPanel sidebar = new JPanel(new BorderLayout());
         sidebar.setPreferredSize(new Dimension(240, 0));
         sidebar.setBackground(Theme.SIDEBAR_BG);
@@ -34,7 +34,7 @@ public class DashboardPanel extends JPanel {
         logo.setBorder(new EmptyBorder(25, 0, 25, 0));
         sidebar.add(logo, BorderLayout.NORTH);
 
-        // Sidebar buttons
+        /*  Sidebar buttons
         String[] menuItems = {"Dashboard", "Course Catalog", "Timetable", "My Grades", "My Courses", "My Finances", "Transcript"};
         JPanel menuPanel = new JPanel();
         menuPanel.setLayout(new GridLayout(0, 1, 0, 5));
@@ -62,14 +62,16 @@ public class DashboardPanel extends JPanel {
         }
 
         sidebar.add(menuPanel, BorderLayout.CENTER);
+        */
 
-        // Footer user info
+       /*  // Footer user info
         JLabel user = new JLabel("<html><center><b style='color:white;'>John Smith</b><br><small style='color:#CCCCCC;'>2021CS101</small></center></html>", SwingConstants.CENTER);
         user.setBorder(new EmptyBorder(20, 0, 20, 0));
         sidebar.add(user, BorderLayout.SOUTH);
 
         return sidebar;
     }
+    */
 
     // ---------------- MAIN CONTENT ---------------- //
     private JPanel createDashboardContent() {

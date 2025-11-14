@@ -1,4 +1,4 @@
-package edu.univ.erp.ui.instructor;
+package edu.univ.erp.ui.Instructor;
 
 import java.awt.*;
 

@@ -1,13 +1,13 @@
-package edu.univ.erp.ui.instructor;
+package edu.univ.erp.ui.Instructor;
 
 import edu.univ.erp.ui.MainFrame;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
 
-import edu.univ.erp.ui.instructor.DashboardPanel;
-import edu.univ.erp.ui.instructor.MyCoursesPanel;
-import edu.univ.erp.ui.instructor.CourseDetailsPanel;
-import edu.univ.erp.ui.instructor.InstructorTimetablePanel;
+import edu.univ.erp.ui.Instructor.DashboardPanel;
+import edu.univ.erp.ui.Instructor.MyCoursesPanel;
+import edu.univ.erp.ui.Instructor.CourseDetailsPanel;
+import edu.univ.erp.ui.Instructor.InstructorTimetablePanel;
 
 
 import javax.swing.*;

@@ -1,10 +1,10 @@
 package edu.univ.erp.ui.student;
 
+import edu.univ.erp.data.StudentDao;
+import edu.univ.erp.data.StudentDaoImpl;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
 import edu.univ.erp.util.DBConnection;
-import edu.univ.erp.data.StudentDao;
-import edu.univ.erp.data.StudentDaoImpl;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -13,7 +13,12 @@ import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
 
-public class MyCoursesPanel extends JPanel {
+/**
+ * MyCoursesPanel — lists current courses for the logged-in student.
+ * Implements RegistrationListener so other panels can notify it to refresh.
+ */
+public class MyCoursesPanel extends JPanel implements RegistrationListener {
+
     private String studentId;
     private DefaultTableModel model;
     private JTextField txtSearch;
@@ -22,14 +27,14 @@ public class MyCoursesPanel extends JPanel {
         setLayout(new BorderLayout(10, 10));
         setBackground(Theme.BACKGROUND);
 
-        // --- Header ---
+        // Header
         JLabel header = new JLabel("🎓 My Courses");
         header.setFont(new Font("Segoe UI", Font.BOLD, 22));
         header.setForeground(Theme.PRIMARY);
         header.setBorder(BorderFactory.createEmptyBorder(15, 15, 10, 15));
         add(header, BorderLayout.NORTH);
 
-        // --- Search bar ---
+        // Search panel
         JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
         searchPanel.setBackground(Theme.BACKGROUND);
         txtSearch = new JTextField(20);
@@ -45,7 +50,7 @@ public class MyCoursesPanel extends JPanel {
         searchPanel.add(btnRefresh);
         add(searchPanel, BorderLayout.SOUTH);
 
-        // --- Table Setup ---
+        // Table setup
         String[] cols = {"Course Code", "Course Name", "Instructor", "Schedule", "Credits", "Status"};
         model = new DefaultTableModel(cols, 0) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
@@ -67,19 +72,23 @@ public class MyCoursesPanel extends JPanel {
         add(tablePanel, BorderLayout.CENTER);
     }
 
-    /** Called by StudentPanel after login */
+    /** Called by StudentPanel after login to set the active student and load courses. */
     public void setStudentId(String id) {
         this.studentId = id;
         reloadFromDb(null);
     }
 
-    private void reloadFromDb(String query) {
+    /**
+     * Public reload method — used by UI and by the registration listener.
+     * Query may be null to fetch all current courses.
+     */
+    public void reloadFromDb(String query) {
         model.setRowCount(0);
         if (studentId == null || studentId.isEmpty()) return;
 
-        new SwingWorker<List<Map<String, Object>>, Void>() {
+        new SwingWorker<List<Map<String,Object>>, Void>() {
             @Override
-            protected List<Map<String, Object>> doInBackground() throws Exception {
+            protected List<Map<String,Object>> doInBackground() throws Exception {
                 try (Connection conn = DBConnection.getErpConnection()) {
                     StudentDao dao = new StudentDaoImpl(conn);
                     return dao.getCurrentCourses(studentId, query);
@@ -89,8 +98,9 @@ public class MyCoursesPanel extends JPanel {
             @Override
             protected void done() {
                 try {
-                    List<Map<String, Object>> rows = get();
-                    for (Map<String, Object> c : rows) {
+                    List<Map<String,Object>> rows = get();
+                    if (rows == null) return;
+                    for (Map<String,Object> c : rows) {
                         model.addRow(new Object[]{
                             c.get("course_code"),
                             c.get("course_name"),
@@ -109,5 +119,12 @@ public class MyCoursesPanel extends JPanel {
                 }
             }
         }.execute();
+    }
+
+    /** RegistrationListener impl — called when user registers/drops a course elsewhere. */
+    @Override
+    public void onRegistrationChanged() {
+        // refresh visible course list
+        reloadFromDb(null);
     }
 }

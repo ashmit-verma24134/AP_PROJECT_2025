@@ -7,6 +7,8 @@ import edu.univ.erp.util.DBConnection;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+
 import edu.univ.erp.service.StudentSummary;
 import edu.univ.erp.service.SemesterRecord;
 
@@ -113,7 +115,20 @@ public Result registerForSection(String studentId, long sectionId) {
         return Result.error("Connection error: " + ex.getMessage());
     }
 }
+ public Map<String,Object> getStudentOverview(String studentId) throws Exception {
+        try (Connection conn = DBConnection.getErpConnection()) {
+            StudentDao dao = new StudentDaoImpl(conn);
+            return dao.getStudentOverview(studentId);
+        }
+    }
 
+    /** Get current courses as list of maps for MyCoursesPanel */
+    public List<Map<String,Object>> getCurrentCourses(String studentId, String query) throws Exception {
+        try (Connection conn = DBConnection.getErpConnection()) {
+            StudentDao dao = new StudentDaoImpl(conn);
+            return dao.getCurrentCourses(studentId, query);
+        }
+    }
 /**
  * Fetch student header info for dashboard: name, program, inferred current sem, current cgpa.
  * Accepts student_id (long).

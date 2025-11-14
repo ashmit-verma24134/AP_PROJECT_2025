@@ -1,21 +1,38 @@
 package edu.univ.erp.data;
 
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 
 public interface StudentDao {
-    /**
-     * Get internal student ID from roll number.
-     */
     Long getStudentIdByRoll(String rollNo) throws Exception;
 
     /**
-     * Get all currently enrolled courses for a given student.
-     * @param studentId the student's unique ID
-     * @param searchQuery optional text to filter by course code, name, or instructor
-     * @return list of course records (each as a Map<String,Object>)
+     * Overview keys:
+     * - "enrolled_count" -> Integer
+     * - "total_credits"  -> Double
+     * - "cgpa"           -> Double or null
+     * - "attendance_percent" -> Double or null
+     * - "pending_fees"   -> Double
      */
-    List<Map<String, Object>> getCurrentCourses(String studentId, String searchQuery);
+    Map<String, Object> getStudentOverview(String studentId) throws Exception;
+List<Map<String,Object>> getStudentSchedule(String studentId) throws SQLException;
+
+    
+    /**
+     * Return current/previous courses for this student.
+     * Each map contains: course_id, course_code, course_name, instructor, schedule, credits, status, section_id
+     */
+    List<Map<String, Object>> getCurrentCourses(String studentId, String searchQuery) throws Exception;
+
+    List<Map<String,Object>> getUpcomingSchedule(String studentId, int limit) throws Exception;
+List<Map<String,Object>> getRecentGrades(String studentId, int limit) throws Exception;
+List<Map<String, Object>> getStudentTimetable(String studentId) throws Exception;
+
+
+    /**
+     * Compute overall attendance percent across enrollments which have attendance rows.
+     * Returns a number in range [0..100], rounded to 2 decimals. Returns null if no attendance data.
+     */
+    Double getAttendancePercentage(String studentId) throws Exception;
 }
-
-

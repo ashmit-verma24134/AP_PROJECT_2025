@@ -1,4 +1,4 @@
-package edu.univ.erp.ui.instructor;
+package edu.univ.erp.ui.Instructor;
 
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;

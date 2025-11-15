@@ -13,10 +13,10 @@
   <url>https://github.com/ashmit-verma24134/AP_PROJECT_2025</url>
 
   <properties>
-    <maven.compiler.source>21</maven.compiler.source>
-    <maven.compiler.target>21</maven.compiler.target>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
     <!-- Use the release flag to ensure cross-compatibility with the target JDK -->
-    <maven.compiler.release>21</maven.compiler.release>
+    <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <flatlaf.version>3.0</flatlaf.version>
     <hikaricp.version>5.0.1</hikaricp.version>

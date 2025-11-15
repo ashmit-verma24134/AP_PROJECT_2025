@@ -20,17 +20,23 @@ public class StudentDaoImpl implements StudentDao {
         this.conn = conn;
     }
 
-    @Override
-    public Long getStudentIdByRoll(String rollNo) throws Exception {
-        final String sql = "SELECT student_id FROM students WHERE roll_no = ? LIMIT 1";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, rollNo);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return rs.getLong("student_id");
-                return null;
-            }
+    
+
+// returns a Student object containing id, rollNo, fullName
+// put this inside StudentDaoImpl (class already has `private final Connection conn;`)
+@Override
+public Long getStudentIdByRoll(String rollNo) throws Exception {
+    final String sql = "SELECT student_id FROM students WHERE roll_no = ? LIMIT 1";
+    try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        ps.setString(1, rollNo);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) return rs.getLong("student_id");
+            return null;
         }
     }
+}
+
+
 
     @Override
     public Map<String, Object> getStudentOverview(String studentId) throws java.sql.SQLException {

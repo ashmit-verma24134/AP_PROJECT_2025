@@ -8,7 +8,7 @@ public class DBConnection {
     // ✅ Auth DB (default)
     private static final String URL = "jdbc:mysql://localhost:3306/auth_db?useSSL=false&allowPublicKeyRetrieval=true";
     private static final String USER = "root";
-    private static final String PASSWORD = "Anuradha@babu1";
+    private static final String PASSWORD = "ash123";
 
     // --- existing method ---
     public static Connection getConnection() throws SQLException {

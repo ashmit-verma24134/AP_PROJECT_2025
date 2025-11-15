@@ -61,6 +61,13 @@ public class AdminPanel extends JPanel {
 
         sidebar.add(Box.createRigidArea(new Dimension(0, 8)));
 
+        JButton addUserBtn = new JButton("Add User");
+        addUserBtn.addActionListener(e -> showCard("addUser"));
+        sidebar.add(addUserBtn);
+
+        cards.add(new AddUserPanel(), "addUser");
+
+
         // ===== Define Navigation Buttons =====
         Map<String, String> navItems = Map.of(
                 "Dashboard", "Dashboard",

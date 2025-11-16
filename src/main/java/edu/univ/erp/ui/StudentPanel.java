@@ -32,8 +32,8 @@ public class StudentPanel extends JPanel {
     private final TimetablePanel timetablePanel = new TimetablePanel();
     private final TranscriptPanel transcriptPanel = new TranscriptPanel();
 
-    private final FinancePanel financePanel = new FinancePanel();
-    private final GradesPanel gradesPanel = new GradesPanel();
+    private final SemesterGradesPanel gradesPanel = new SemesterGradesPanel();
+
     private final MyCoursesPanel myCoursesPanel = new MyCoursesPanel();
 
     private String studentId;
@@ -82,7 +82,7 @@ public class StudentPanel extends JPanel {
         JButton btnTranscript  = makeNavButton("Transcript");
         JButton btnMyCourses   = makeNavButton("My Courses");
         JButton btnGrades      = makeNavButton("My Grades");
-        JButton btnFinance     = makeNavButton("My Finances");
+  
 
         navButtonsContainer.add(Box.createVerticalStrut(12));
         navButtonsContainer.add(btnDashboard);
@@ -97,7 +97,6 @@ public class StudentPanel extends JPanel {
         navButtonsContainer.add(Box.createVerticalStrut(8));
         navButtonsContainer.add(btnGrades);
         navButtonsContainer.add(Box.createVerticalStrut(8));
-        navButtonsContainer.add(btnFinance);
         navButtonsContainer.add(Box.createVerticalGlue());
 
         navPanel.add(navButtonsContainer);
@@ -111,7 +110,6 @@ public class StudentPanel extends JPanel {
         cards.add(wrapInPadding(transcriptPanel), "transcript");
         cards.add(wrapInPadding(myCoursesPanel), "mycourses");
         cards.add(wrapInPadding(gradesPanel), "grades");
-        cards.add(wrapInPadding(financePanel), "finance");
 
         add(cards, BorderLayout.CENTER);
 
@@ -122,7 +120,6 @@ public class StudentPanel extends JPanel {
         btnTranscript.addActionListener(e -> { setNavActive(btnTranscript); showCard("transcript"); });
         btnMyCourses.addActionListener(e -> { setNavActive(btnMyCourses); showCard("mycourses"); });
         btnGrades.addActionListener(e -> { setNavActive(btnGrades); showCard("grades"); });
-        btnFinance.addActionListener(e -> { setNavActive(btnFinance); showCard("finance"); });
 
         // ---------- REGISTRATION LISTENER WIRING ----------
         catalogPanel.setRegistrationListener(() -> {
@@ -193,7 +190,6 @@ public class StudentPanel extends JPanel {
         catalogPanel.setStudentId(studentId);
         timetablePanel.setStudentId(studentId);
         transcriptPanel.setStudentId(studentId);
-        financePanel.setStudentId(studentId);
         gradesPanel.setStudentId(studentId);
         myCoursesPanel.setStudentId(studentId);
 
@@ -226,7 +222,6 @@ public class StudentPanel extends JPanel {
                     transcriptPanel.setActionsEnabled(!maintenance);
                     dashboardPanel.setActionsEnabled(!maintenance);
                     gradesPanel.setEnabled(!maintenance);
-                    financePanel.setEnabled(!maintenance);
                     myCoursesPanel.setEnabled(!maintenance);
                 } catch (Exception ignore) {}
             }

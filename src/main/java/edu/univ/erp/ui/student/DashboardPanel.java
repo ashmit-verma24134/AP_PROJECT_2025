@@ -2,6 +2,9 @@ package edu.univ.erp.ui.student;
 
 import edu.univ.erp.data.StudentDao;
 import edu.univ.erp.data.StudentDaoImpl;
+import edu.univ.erp.service.RegistrationEventBus;
+import edu.univ.erp.service.RegistrationEventBus;
+
 import edu.univ.erp.ui.Theme;
 import edu.univ.erp.util.DBConnection;
 
@@ -20,7 +23,8 @@ import java.util.Map;
  * DashboardPanel — shows student's CGPA, enrolled courses, credits, attendance, schedule, and recent grades.
  * Call setStudentId(studentId) after login to populate values.
  */
-public class DashboardPanel extends JPanel implements RegistrationListener {
+public class DashboardPanel extends JPanel implements RegistrationEventBus.Listener 
+ {
     private String studentId = null;
 
     // Info fields
@@ -44,6 +48,9 @@ public class DashboardPanel extends JPanel implements RegistrationListener {
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         scrollPane.getViewport().setBackground(Theme.BACKGROUND);
         add(scrollPane, BorderLayout.CENTER);
+
+        RegistrationEventBus.get().register(this);
+
     }
 
     private JPanel createDashboardContent() {

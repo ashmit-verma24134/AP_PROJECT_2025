@@ -1,293 +1,398 @@
 package edu.univ.erp.ui.student;
 
-import edu.univ.erp.ui.RoundedPanel;
+import edu.univ.erp.data.StudentDao;
+import edu.univ.erp.data.StudentDaoImpl;
+import edu.univ.erp.service.RegistrationEventBus;
 import edu.univ.erp.ui.Theme;
-import org.jfree.chart.ChartFactory;
-import org.jfree.chart.ChartPanel;
-import org.jfree.chart.JFreeChart;
-import org.jfree.data.general.DefaultPieDataset;
+import edu.univ.erp.util.DBConnection;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableColumn;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
-public class GradesPanel extends JPanel {
+/**
+ * GradesPanel: semester accordion + per-semester course table + "See Components" action.
+ *
+ * Relies on:
+ *  - StudentDao.getGradeDetails(studentId) -> List<Map<String,Object>>
+ *  - AssessmentsDialog(Window, long, String, String) constructor
+ *  - RegistrationEventBus for real-time refresh
+ */
+public class GradesPanel extends JPanel implements RegistrationEventBus.Listener {
+
     private String studentId;
-    private DefaultTableModel model;
-    private JLabel lblSemesterGPA, lblCumulativeGPA;
-    private JComboBox<String> semesterSelector;
-    private ChartPanel chartPanel;
+
+    private final JPanel semestersContainer; // container holding semester sections
+    private final JButton btnRefresh;
+    private final JLabel statusLabel;
 
     public GradesPanel() {
-        setLayout(new BorderLayout());
+        setLayout(new BorderLayout(8, 8));
         setBackground(Theme.BACKGROUND);
 
-        // === Header ===
-        JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(Theme.PRIMARY);
-        headerPanel.setPreferredSize(new Dimension(100, 60));
-        JLabel header = new JLabel("📊 My Grades");
-        header.setFont(new Font("Segoe UI Semibold", Font.BOLD, 22));
-        header.setForeground(Color.WHITE);
-        header.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
-        headerPanel.add(header, BorderLayout.WEST);
-        add(headerPanel, BorderLayout.NORTH);
+        // Header
+        JLabel title = new JLabel("Grades & Assessments");
+        title.setFont(new Font("Segoe UI", Font.BOLD, 22));
+        title.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+        add(title, BorderLayout.NORTH);
 
-        // === Scrollable content ===
-        JPanel contentPanel = new JPanel();
-        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setBackground(Theme.BACKGROUND);
-        JScrollPane scrollPane = new JScrollPane(contentPanel);
-        scrollPane.setBorder(null);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        add(scrollPane, BorderLayout.CENTER);
+        // Top toolbar with Refresh
+        JPanel topBar = new JPanel(new BorderLayout());
+        topBar.setBackground(Theme.BACKGROUND);
+        btnRefresh = new JButton("Refresh");
+        btnRefresh.addActionListener(e -> reload());
+        JPanel r = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        r.setBackground(Theme.BACKGROUND);
+        r.add(btnRefresh);
+        topBar.add(r, BorderLayout.EAST);
 
-        // === GPA summary row ===
-        JPanel summaryRow = new JPanel(new GridLayout(1, 3, 20, 10));
-        summaryRow.setBackground(Theme.BACKGROUND);
-        summaryRow.setBorder(BorderFactory.createEmptyBorder(20, 25, 10, 25));
+        statusLabel = new JLabel(" ");
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
+        topBar.add(statusLabel, BorderLayout.WEST);
 
-        lblSemesterGPA = createSummaryCard("📘 Semester GPA", "-");
-        lblCumulativeGPA = createSummaryCard("⭐ Cumulative GPA", "-");
+        add(topBar, BorderLayout.BEFORE_FIRST_LINE);
 
-        JPanel semSelectPanel = new RoundedPanel(20);
-        semSelectPanel.setBackground(Theme.CARD_BG);
-        semSelectPanel.setLayout(new FlowLayout(FlowLayout.LEFT, 10, 15));
-        semSelectPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        // center: scrollable semesters container
+        semestersContainer = new JPanel();
+        semestersContainer.setLayout(new BoxLayout(semestersContainer, BoxLayout.Y_AXIS));
+        semestersContainer.setBackground(Theme.BACKGROUND);
 
-        JLabel lblSelect = new JLabel("Select Semester:");
-        lblSelect.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        JScrollPane sc = new JScrollPane(semestersContainer, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        sc.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        add(sc, BorderLayout.CENTER);
 
-        semesterSelector = new JComboBox<>();
-        semesterSelector.addItem("Overall");
-        semesterSelector.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        semesterSelector.addActionListener(e -> updateChartForSelectedSemester());
-
-        semSelectPanel.add(lblSelect);
-        semSelectPanel.add(semesterSelector);
-
-        summaryRow.add(lblSemesterGPA);
-        summaryRow.add(lblCumulativeGPA);
-        summaryRow.add(semSelectPanel);
-
-        contentPanel.add(summaryRow);
-
-        // === Grade Table Card ===
-        RoundedPanel tablePanel = new RoundedPanel(25);
-        tablePanel.setBackground(Theme.CARD_BG);
-        tablePanel.setLayout(new BorderLayout());
-        tablePanel.setBorder(BorderFactory.createEmptyBorder(15, 20, 15, 20));
-
-        JLabel tableTitle = new JLabel("📚 Grade Details");
-        tableTitle.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        tableTitle.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
-        tablePanel.add(tableTitle, BorderLayout.NORTH);
-
-        String[] cols = {"Course Code", "Course Name", "Instructor", "Credits", "Semester", "Year", "Grade"};
-        model = new DefaultTableModel(cols, 0) {
-            @Override public boolean isCellEditable(int r, int c) { return false; }
-        };
-        JTable table = new JTable(model);
-        table.setRowHeight(28);
-        table.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        table.getTableHeader().setBackground(Theme.PRIMARY);
-        table.getTableHeader().setForeground(Color.WHITE);
-        table.setGridColor(new Color(230, 230, 230));
-
-        JScrollPane spTable = new JScrollPane(table);
-        tablePanel.add(spTable, BorderLayout.CENTER);
-        contentPanel.add(tablePanel);
-
-        // === Chart Card ===
-        RoundedPanel chartCard = new RoundedPanel(25);
-        chartCard.setBackground(Theme.CARD_BG);
-        chartCard.setLayout(new BorderLayout());
-        chartCard.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-
-        JLabel chartLabel = new JLabel("📈 Grade Distribution");
-        chartLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        chartLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
-
-        chartPanel = new ChartPanel(createEmptyChart());
-        chartPanel.setPreferredSize(new Dimension(700, 300));
-        chartPanel.setBackground(Color.WHITE);
-
-        chartCard.add(chartLabel, BorderLayout.NORTH);
-        chartCard.add(chartPanel, BorderLayout.CENTER);
-        chartCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 400));
-
-        contentPanel.add(Box.createVerticalStrut(15));
-        contentPanel.add(chartCard);
-
-        // === Padding at bottom ===
-        contentPanel.add(Box.createVerticalStrut(30));
+        // register to event bus so registration changes trigger reload
+        RegistrationEventBus.get().register(this);
     }
 
-    /** Creates a GPA summary card */
-    private JLabel createSummaryCard(String title, String valueText) {
-        RoundedPanel card = new RoundedPanel(20);
-        card.setBackground(Theme.CARD_BG);
-        card.setLayout(new BorderLayout());
-        card.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-
-        JLabel iconLabel = new JLabel(title.split(" ")[0]);
-        iconLabel.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 28));
-        iconLabel.setForeground(Theme.PRIMARY);
-
-        JLabel titleLabel = new JLabel(title.substring(title.indexOf(" ") + 1));
-        titleLabel.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        titleLabel.setForeground(new Color(90, 90, 90));
-
-        JLabel valueLabel = new JLabel(valueText);
-        valueLabel.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        valueLabel.setForeground(Theme.PRIMARY);
-
-        JPanel textPanel = new JPanel(new GridLayout(2, 1, 2, 2));
-        textPanel.setBackground(Theme.CARD_BG);
-        textPanel.add(titleLabel);
-        textPanel.add(valueLabel);
-
-        card.add(iconLabel, BorderLayout.WEST);
-        card.add(textPanel, BorderLayout.CENTER);
-        return valueLabel;
-    }
-
-    /** Called by StudentPanel after login */
+    /**
+     * Public API to set current student and load their data.
+     */
     public void setStudentId(String id) {
         this.studentId = id;
-        reloadFromDb();
+        reload();
     }
 
-    private void reloadFromDb() {
-        model.setRowCount(0);
-        lblSemesterGPA.setText("Semester GPA: -");
-        lblCumulativeGPA.setText("Cumulative GPA: -");
+    /**
+     * Reload the whole panel (fetch grade rows and build semester accordion).
+     */
+    public void reload() {
+        if (studentId == null) return;
+        btnRefresh.setEnabled(false);
+        statusLabel.setText("Loading courses...");
 
-        if (studentId == null || studentId.isEmpty()) return;
+        // clear existing UI quickly
+        semestersContainer.removeAll();
+        semestersContainer.add(new JLabel("Loading...", SwingConstants.CENTER));
+        semestersContainer.revalidate();
+        semestersContainer.repaint();
 
-        new SwingWorker<Map<String, Object>, Void>() {
+        new SwingWorker<List<Map<String, Object>>, Void>() {
             @Override
-            protected Map<String, Object> doInBackground() throws Exception {
-                Thread.sleep(300); // simulate DB delay
-
-                // Mock DB data
-                return Map.of(
-                        "grades", List.of(
-                                Map.of("course_code", "CS201", "course_name", "Data Structures", "instructor", "Dr. Sharma", "credits", 4, "semester", "1", "year", 2024, "grade", "A+"),
-                                Map.of("course_code", "EE203", "course_name", "Digital Circuits", "instructor", "Prof. Rao", "credits", 3, "semester", "1", "year", 2024, "grade", "A"),
-                                Map.of("course_code", "MA102", "course_name", "Calculus II", "instructor", "Dr. Verma", "credits", 4, "semester", "2", "year", 2025, "grade", "B+"),
-                                Map.of("course_code", "PH101", "course_name", "Physics", "instructor", "Dr. Nair", "credits", 3, "semester", "2", "year", 2025, "grade", "A"),
-                                Map.of("course_code", "HS201", "course_name", "Professional Ethics", "instructor", "Dr. Das", "credits", 2, "semester", "3", "year", 2025, "grade", "A+")
-                        ),
-                        "semesterGPA", 8.9,
-                        "cumulativeGPA", 9.1
-                );
+            protected List<Map<String, Object>> doInBackground() throws Exception {
+                try (Connection conn = DBConnection.getErpConnection()) {
+                    StudentDao dao = new StudentDaoImpl(conn);
+                    return dao.getGradeDetails(studentId);
+                }
             }
 
             @Override
             protected void done() {
                 try {
-                    Map<String, Object> data = get();
-                    List<Map<String, Object>> grades = (List<Map<String, Object>>) data.get("grades");
-
-                    // Fill table
-                    for (Map<String, Object> g : grades) {
-                        model.addRow(new Object[]{
-                                g.get("course_code"),
-                                g.get("course_name"),
-                                g.get("instructor"),
-                                g.get("credits"),
-                                g.get("semester"),
-                                g.get("year"),
-                                g.get("grade")
-                        });
-                    }
-
-                    lblSemesterGPA.setText("📘 Semester GPA: " + data.get("semesterGPA"));
-                    lblCumulativeGPA.setText("⭐ Cumulative GPA: " + data.get("cumulativeGPA"));
-
-                    // Populate semester selector
-                    semesterSelector.removeAllItems();
-                    semesterSelector.addItem("Overall");
-                    grades.stream()
-                            .map(g -> g.get("semester").toString())
-                            .distinct()
-                            .sorted()
-                            .forEach(semesterSelector::addItem);
-
-                    // Build overall chart initially
-                    updateChart(grades);
-
-                } catch (Exception e) {
-                    JOptionPane.showMessageDialog(GradesPanel.this,
-                            "Error loading grades: " + e.getMessage(),
-                            "Database Error",
-                            JOptionPane.ERROR_MESSAGE);
-                    e.printStackTrace();
+                    List<Map<String, Object>> rows = get();
+                    buildSemesterPanels(rows);
+                    statusLabel.setText("Loaded " + countUniqueEnrollments(rows) + " courses");
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    semestersContainer.removeAll();
+                    semestersContainer.add(new JLabel("Error loading data: " + ex.getMessage()));
+                    statusLabel.setText("Error");
+                } finally {
+                    btnRefresh.setEnabled(true);
                 }
             }
         }.execute();
     }
 
-    /** Creates pie chart dataset and updates chart panel */
-    private void updateChart(List<Map<String, Object>> grades) {
-        Map<String, Long> gradeCount = grades.stream()
-                .collect(Collectors.groupingBy(g -> g.get("grade").toString(), Collectors.counting()));
-
-        DefaultPieDataset dataset = new DefaultPieDataset();
-        gradeCount.forEach(dataset::setValue);
-
-        JFreeChart pieChart = ChartFactory.createPieChart(
-                "Grade Distribution",
-                dataset,
-                true, true, false);
-
-        chartPanel.setChart(pieChart);
+    private int countUniqueEnrollments(List<Map<String, Object>> rows) {
+        if (rows == null) return 0;
+        java.util.Set<Object> s = new java.util.HashSet<>();
+        for (Map<String, Object> r : rows) {
+            Object en = r.get("enrollment_id");
+            if (en != null) s.add(en);
+        }
+        return s.size();
     }
 
-    /** Called when user changes semester dropdown */
-    private void updateChartForSelectedSemester() {
-        if (model.getRowCount() == 0) return;
+    /**
+     * Build the semester accordion panels from DAO rows.
+     * Each semester becomes a collapsible panel with a course table inside.
+     */
+private void buildSemesterPanels(List<Map<String,Object>> rows) {
 
-        String selected = (String) semesterSelector.getSelectedItem();
-        if (selected == null) return;
+    // semestersContainer already exists (final) — just reset
+    semestersContainer.removeAll();
+    semestersContainer.setLayout(new BoxLayout(semestersContainer, BoxLayout.Y_AXIS));
+    semestersContainer.setBackground(Color.WHITE);
 
-        List<Map<String, Object>> grades = extractGradesFromModel();
+    // Group by semester string
+    java.util.Map<String, java.util.List<Map<String,Object>>> bySem = new java.util.LinkedHashMap<>();
+    for (Map<String,Object> r : rows) {
+        String sem;
+        Object semObj = r.get("semester");
+        Object yearObj = r.get("year");
 
-        if ("Overall".equals(selected)) {
-            updateChart(grades);
+        if (semObj != null)
+            sem = String.valueOf(semObj) + (yearObj != null ? " / " + yearObj : "");
+        else if (yearObj != null)
+            sem = "Term / " + yearObj;
+        else
+            sem = "Current";
+
+        bySem.computeIfAbsent(sem, k -> new java.util.ArrayList<>()).add(r);
+    }
+
+
+    boolean firstAdded = false;
+    for (String semKey : bySem.keySet()) {
+        java.util.List<Map<String,Object>> semRows = bySem.get(semKey);
+
+        // Build table model for this semester
+        String[] cols = new String[] {"#", "Course Code", "Course Title", "Credits", "Grade", "Grade Point", "Actions"};
+        DefaultTableModel tm = new DefaultTableModel(cols, 0) {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+        };
+        JTable semesterTable = new JTable(tm);
+        semesterTable.setRowHeight(28);
+        semesterTable.getTableHeader().setBackground(Theme.PRIMARY);
+        semesterTable.getTableHeader().setForeground(Color.WHITE);
+
+        // collect unique enrollment rows
+        java.util.Set<Object> seen = new java.util.HashSet<>();
+        int idx = 1;
+        for (Map<String,Object> r : semRows) {
+            Object enId = r.get("enrollment_id");
+            if (seen.contains(enId)) continue;
+            seen.add(enId);
+            Object code = r.get("course_code");
+            Object title = r.get("course_name");
+            Object credits = r.get("credits") == null ? "—" : r.get("credits");
+            Object finalGrade = r.get("final_grade") == null ? "N/A" : r.get("final_grade");
+            Object gradePoint = r.get("grade_point") == null ? "—" : r.get("grade_point");
+            tm.addRow(new Object[]{ idx++, code, title, credits, finalGrade, gradePoint, "See Components" });
+        }
+
+        // Table scroll pane sized to a reasonable collapsed/expanded height
+        JScrollPane tableScroll = new JScrollPane(semesterTable);
+        tableScroll.setPreferredSize(new Dimension(900, 220)); // expanded size
+        JPanel body = new JPanel(new BorderLayout());
+        body.setBackground(Color.WHITE);
+        body.add(tableScroll, BorderLayout.CENTER);
+
+        // footer SGPA - very simple
+        JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        footer.setBackground(Color.WHITE);
+        JLabel sgpa = new JLabel("SGPA: 0.00 (Credits: " + Math.max(0, tm.getRowCount()) + ")");
+        sgpa.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        footer.add(sgpa);
+        body.add(footer, BorderLayout.SOUTH);
+
+        // Create collapsible semester panel
+        SemesterPanel sp = new SemesterPanel(semKey, body);
+        sp.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // Add click handler for "See Components" by mouse click on the table
+        semesterTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                int row = semesterTable.rowAtPoint(e.getPoint());
+                int col = semesterTable.columnAtPoint(e.getPoint());
+                if (row < 0) return;
+                int actionsCol = semesterTable.getColumnModel().getColumnIndex("Actions");
+                if (col == actionsCol) {
+                    // find matching enrollment id from semRows by matching code+title
+                    Object code = semesterTable.getValueAt(row, 1);
+                    Object title = semesterTable.getValueAt(row, 2);
+                    long enrollmentId = -1;
+                    String courseCode = null;
+                    String courseTitle = null;
+                    for (Map<String,Object> rr : semRows) {
+                        Object rc = rr.get("course_code");
+                        Object rt = rr.get("course_name");
+                        if (rc != null && rt != null && rc.equals(code) && rt.equals(title)) {
+                            Object en = rr.get("enrollment_id");
+                            if (en instanceof Number) enrollmentId = ((Number)en).longValue();
+                            else {
+                                try { enrollmentId = Long.parseLong(String.valueOf(en)); }
+                                catch (Exception ex) { enrollmentId = -1; }
+                            }
+                            courseCode = rc == null ? null : String.valueOf(rc);
+                            courseTitle = rt == null ? null : String.valueOf(rt);
+                            break;
+                        }
+                    }
+                    if (enrollmentId > 0) {
+                        final long finalEnrollmentId = enrollmentId;
+                        final String finalCourseCode = courseCode;
+                        final String finalCourseTitle = courseTitle;
+                        SwingUtilities.invokeLater(() -> {
+                            Window owner = SwingUtilities.getWindowAncestor(GradesPanel.this);
+                            AssessmentsDialog dlg = new AssessmentsDialog(owner, finalEnrollmentId, finalCourseCode, finalCourseTitle);
+                            dlg.setVisible(true);
+                        });
+                    } else {
+                        JOptionPane.showMessageDialog(GradesPanel.this, "Cannot locate enrollment id for that course", "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }
+        });
+
+        // Add semester panel to container
+        semestersContainer.add(sp);
+        semestersContainer.add(Box.createVerticalStrut(8));
+
+        // expand first semester automatically (optional)
+        if (!firstAdded) {
+            sp.expand();
+            firstAdded = true;
+        }
+    }
+
+    semestersContainer.revalidate();
+    semestersContainer.repaint();
+}
+    /**
+     * Inner class: simple collapsible semester panel.
+     * Header appears as a button-like label; clicking toggles visibility of body.
+     */
+      /**
+     * Inner class: simple collapsible semester panel.
+     * Header appears as a button-like row; clicking toggles visibility of body.
+     */
+  private class SemesterPanel extends JPanel {
+    private final JPanel header;
+    private final JPanel bodyCards; // CardLayout: "empty" or "content"
+    private final String semTitle;
+    private boolean expanded = false;
+
+    SemesterPanel(String title, JPanel content) {
+        this.semTitle = title;
+        setLayout(new BorderLayout());
+        setBackground(Color.WHITE);
+        setBorder(BorderFactory.createLineBorder(new Color(220,220,220)));
+
+        // Header area
+        header = new JPanel(new BorderLayout());
+        header.setBackground(new Color(35, 57, 115));
+        header.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        header.setOpaque(true);
+        header.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        JLabel lbl = new JLabel(title);
+        lbl.setForeground(Color.WHITE);
+        lbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        header.add(lbl, BorderLayout.WEST);
+
+        JLabel arrow = new JLabel("\u25BC"); // down arrow
+        arrow.setForeground(Color.WHITE);
+        arrow.setFont(arrow.getFont().deriveFont(Font.BOLD, 14f));
+        header.add(arrow, BorderLayout.EAST);
+
+        MouseAdapter ma = new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) { toggle(); }
+            @Override public void mouseEntered(MouseEvent e) { header.setBackground(new Color(45,67,135)); }
+            @Override public void mouseExited(MouseEvent e) { header.setBackground(new Color(35,57,115)); }
+        };
+        header.addMouseListener(ma);
+        lbl.addMouseListener(ma);
+        arrow.addMouseListener(ma);
+        header.putClientProperty("arrow", arrow);
+
+        // Body: card layout so collapsed state occupies no preferred height
+        bodyCards = new JPanel(new CardLayout());
+        bodyCards.setBackground(Color.WHITE);
+
+        // empty panel (zero-ish height)
+        JPanel empty = new JPanel();
+        empty.setBackground(Color.WHITE);
+
+        // content wrapper: we add the provided content inside a wrapper that has a preferred size
+        JPanel contentWrapper = new JPanel(new BorderLayout());
+        contentWrapper.setBackground(Color.WHITE);
+        contentWrapper.add(content, BorderLayout.CENTER);
+
+        bodyCards.add("empty", empty);
+        bodyCards.add("content", contentWrapper);
+
+        // start collapsed
+        showCard("empty");
+
+        add(header, BorderLayout.NORTH);
+        add(bodyCards, BorderLayout.CENTER);
+    }
+
+    private void showCard(String name) {
+        CardLayout cl = (CardLayout) bodyCards.getLayout();
+        cl.show(bodyCards, name);
+    }
+
+    void toggle() {
+        expanded = !expanded;
+        JLabel arrow = (JLabel) header.getClientProperty("arrow");
+        if (expanded) {
+            showCard("content");
+            if (arrow != null) arrow.setText("\u25B2"); // up
+            // collapse siblings for accordion behavior
+            Component[] comps = semestersContainer.getComponents();
+            for (Component c : comps) {
+                if (c instanceof SemesterPanel && c != this) {
+                    SemesterPanel sp = (SemesterPanel) c;
+                    if (sp.expanded) {
+                        sp.expanded = false;
+                        sp.showCard("empty");
+                        JLabel a = (JLabel) sp.header.getClientProperty("arrow");
+                        if (a != null) a.setText("\u25BC");
+                    }
+                }
+            }
         } else {
-            List<Map<String, Object>> filtered = grades.stream()
-                    .filter(g -> g.get("semester").equals(selected))
-                    .collect(Collectors.toList());
-            updateChart(filtered);
+            showCard("empty");
+            if (arrow != null) arrow.setText("\u25BC"); // down
         }
+
+        // force layout update
+        bodyCards.revalidate();
+        bodyCards.repaint();
+        this.revalidate();
+        this.repaint();
+        semestersContainer.revalidate();
+        semestersContainer.repaint();
     }
 
-    /** Extracts table data back into a list for filtering */
-    private List<Map<String, Object>> extractGradesFromModel() {
-        List<Map<String, Object>> list = new java.util.ArrayList<>();
-        for (int i = 0; i < model.getRowCount(); i++) {
-            list.add(Map.of(
-                    "course_code", model.getValueAt(i, 0),
-                    "course_name", model.getValueAt(i, 1),
-                    "instructor", model.getValueAt(i, 2),
-                    "credits", model.getValueAt(i, 3),
-                    "semester", model.getValueAt(i, 4),
-                    "year", model.getValueAt(i, 5),
-                    "grade", model.getValueAt(i, 6)
-            ));
-        }
-        return list;
+    void expand() {
+        if (!expanded) toggle();
+    }
+}
+    /**
+     * RegistrationEventBus callback (other parts call notifyChange() after register/drop).
+     * We'll just reload.
+     */
+    @Override
+    public void onRegistrationChanged() {
+        SwingUtilities.invokeLater(this::reload);
     }
 
-    /** Creates an empty placeholder chart */
-    private JFreeChart createEmptyChart() {
-        DefaultPieDataset dataset = new DefaultPieDataset();
-        dataset.setValue("No Data", 100);
-        return ChartFactory.createPieChart("Grade Distribution", dataset, true, true, false);
+    /**
+     * Cleanup when disposing parent (unregister listener).
+     */
+    public void dispose() {
+        try { RegistrationEventBus.get().unregister(this); } catch (Throwable t) {}
     }
 }

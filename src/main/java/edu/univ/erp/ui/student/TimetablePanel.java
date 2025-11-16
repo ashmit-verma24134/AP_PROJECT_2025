@@ -2,12 +2,19 @@ package edu.univ.erp.ui.student;
 
 import edu.univ.erp.data.StudentDao;
 import edu.univ.erp.data.StudentDaoImpl;
+import edu.univ.erp.service.RegistrationEventBus;
 import edu.univ.erp.util.DBConnection;
 import edu.univ.erp.ui.Theme;
-
+import edu.univ.erp.service.RegistrationEventBus;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import edu.univ.erp.data.StudentDao;
+import edu.univ.erp.data.StudentDaoImpl;
+import edu.univ.erp.service.RegistrationEventBus;
+import edu.univ.erp.util.DBConnection;
+import edu.univ.erp.ui.Theme;
+
 import java.sql.Connection;
 import java.util.*;
 import java.util.List;
@@ -26,6 +33,8 @@ public class TimetablePanel extends JPanel {
 
     // derived time slots between 08:00 and 17:00
     private final String[] TIME_SLOTS;
+    private final RegistrationEventBus.Listener regListener = this::onRegistrationChanged;
+
 
     private final JPanel gridPanel = new JPanel(new GridBagLayout());
     private final Map<Point, Component> placeholderMap = new HashMap<>(); // (dayIndex, slotIndex) -> placeholder
@@ -76,6 +85,8 @@ public class TimetablePanel extends JPanel {
         add(new JScrollPane(debugList), BorderLayout.SOUTH);
 
         buildEmptyGrid();
+        RegistrationEventBus.get().register(regListener);
+
     }
 
     /** helper to format minutes-of-day to H:mm */
@@ -84,6 +95,16 @@ public class TimetablePanel extends JPanel {
         int m = minutesOfDay % 60;
         return String.format("%02d:%02d", h, m);
     }
+/** Called by RegistrationEventBus when a registration changes (drop/register). */
+private void onRegistrationChanged() {
+    // schedule reload on Event Dispatch Thread
+    SwingUtilities.invokeLater(this::loadAndRender);
+}
+
+/** Unregister listener when panel is disposed (avoid leaks). Call this if panel is removed. */
+public void dispose() {
+    RegistrationEventBus.get().unregister(regListener);
+}
 
     /** set student id and trigger load */
     public void setStudentId(String id) {

@@ -8,6 +8,8 @@ import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
 import java.io.File;
 import java.io.FileWriter;
+import edu.univ.erp.service.RegistrationEventBus;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -32,9 +34,12 @@ public class TranscriptPanel extends JPanel {
     private String program;
     private String department;
     private String batch;
+    
 
     // CGPA label
     private final JLabel cgpaLabel = new JLabel("CGPA: -");
+    private final RegistrationEventBus.Listener regListener = this::onRegistrationChanged;
+
 
     private boolean actionsEnabled = true;
 
@@ -53,6 +58,8 @@ public class TranscriptPanel extends JPanel {
         cgpaLabel.setFont(cgpaLabel.getFont().deriveFont(Font.BOLD, 14f));
         cgpaLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 0, 8));
         topPanel.add(cgpaLabel, BorderLayout.EAST);
+        RegistrationEventBus.get().register(regListener);
+
 
         add(topPanel, BorderLayout.NORTH);
 
@@ -77,6 +84,29 @@ public class TranscriptPanel extends JPanel {
 
     /** set numeric DB id as string (e.g. "45") */
     public void setStudentId(String studentId) { this.studentId = studentId; }
+
+    /**
+     * Backwards-compatible reload method used by the event bus listener.
+     * Delegates to the existing reloadForStudent() worker so no logic is duplicated.
+     */
+    public void reloadTranscript() {
+        // simply reuse existing reloadForStudent implementation
+        reloadForStudent();
+    }
+
+    private void onRegistrationChanged() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                reloadTranscript(); // call your existing method that repopulates the table
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        });
+    }
+    public void dispose() {
+        RegistrationEventBus.get().unregister(regListener);
+        // any other cleanup...
+    }
 
     /** caller can set full name if already resolved */
     public void setStudentFullName(String fullName) { this.studentName = fullName; }
@@ -118,16 +148,18 @@ public class TranscriptPanel extends JPanel {
                     }
 
                     // transcript rows (note: we only extract fields we need)
-                    String sql = """
-                        SELECT c.code, c.title, COALESCE(c.credits,0) AS credits,
-                               s.semester, s.year, g.final_grade
-                        FROM enrollments e
-                        JOIN sections s ON s.section_id = e.section_id
-                        JOIN courses c ON c.course_id = s.course_id
-                        LEFT JOIN grades g ON g.enrollment_id = e.enrollment_id
-                        WHERE e.student_id = ?
-                        ORDER BY s.year DESC, s.semester DESC
-                    """;
+String sql = """
+    SELECT c.code, c.title, COALESCE(c.credits,0) AS credits,
+           s.semester, s.year, g.final_grade
+    FROM enrollments e
+    JOIN sections s ON s.section_id = e.section_id
+    JOIN courses c ON c.course_id = s.course_id
+    LEFT JOIN grades g ON g.enrollment_id = e.enrollment_id
+    WHERE e.student_id = ?
+      AND e.status IN ('ENROLLED','COMPLETED')
+    ORDER BY s.year DESC, s.semester DESC
+""";
+
                     try (PreparedStatement ps = conn.prepareStatement(sql)) {
                         try { ps.setLong(1, Long.parseLong(studentId)); }
                         catch (NumberFormatException ex) { ps.setString(1, studentId); }

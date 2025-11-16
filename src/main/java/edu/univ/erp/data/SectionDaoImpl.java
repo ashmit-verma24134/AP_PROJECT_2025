@@ -2,7 +2,9 @@ package edu.univ.erp.data;
 
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class SectionDaoImpl implements SectionDao {
     private final Connection conn;
@@ -93,6 +95,9 @@ public class SectionDaoImpl implements SectionDao {
         SettingsDao settingsDao = new SettingsDaoImpl(conn);
         return settingsDao.isMaintenanceOn();
     }
+    
+
+
 
     @Override
     public boolean isDropDeadlineOver(long sectionId) throws SQLException {

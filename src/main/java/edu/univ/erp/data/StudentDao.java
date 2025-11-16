@@ -17,6 +17,8 @@ public interface StudentDao {
      */
     Map<String, Object> getStudentOverview(String studentId) throws Exception;
 List<Map<String,Object>> getStudentSchedule(String studentId) throws SQLException;
+List<Map<String,Object>> getGradeDetails(String studentId) throws Exception;
+
 
     
     /**
@@ -27,6 +29,8 @@ List<Map<String,Object>> getStudentSchedule(String studentId) throws SQLExceptio
 
     List<Map<String,Object>> getUpcomingSchedule(String studentId, int limit) throws Exception;
 List<Map<String,Object>> getRecentGrades(String studentId, int limit) throws Exception;
+Map<String,Object> getGradesGroupedBySemester(String studentId) throws Exception;
+
 List<Map<String, Object>> getStudentTimetable(String studentId) throws Exception;
 
 

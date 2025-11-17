@@ -1,24 +1,37 @@
 package edu.univ.erp.ui.Instructor;
 
+import edu.univ.erp.data.SectionDaoImpl;
+import edu.univ.erp.data.SectionRow;
+import edu.univ.erp.util.DBConnection;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
 
 import javax.swing.*;
 import javax.swing.table.*;
 import java.awt.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * MyCoursesPanel — lists all courses taught by instructor.
- * Professional ERP-style design with filters, actions, and consistent theme.
+ * Loads real data from DB via SectionDaoImpl and is maintenance-aware.
+ *
+ * Use:
+ *   myCoursesPanel.loadForInstructor(instructorId, "Spring 2025");
  */
 public class MyCoursesPanel extends JPanel {
     private final DefaultTableModel model;
     private final JComboBox<String> semesterFilter;
     private final JTable table;
     private final JTextField searchField;
+
+    // state for the current load
+    private long currentInstructorId = 0L;
+    private String currentTerm = null;
+    private volatile boolean maintenanceOn = false;
 
     public MyCoursesPanel() {
         setLayout(new BorderLayout());
@@ -29,7 +42,7 @@ public class MyCoursesPanel extends JPanel {
         headerPanel.setBackground(Theme.PRIMARY);
         headerPanel.setPreferredSize(new Dimension(100, 65));
 
-        JLabel title = new JLabel("📘 My Courses");
+        JLabel title = new JLabel("My Courses and Sections");
         title.setFont(new Font("Segoe UI Semibold", Font.BOLD, 22));
         title.setForeground(Color.WHITE);
         title.setBorder(BorderFactory.createEmptyBorder(15, 25, 15, 15));
@@ -54,15 +67,20 @@ public class MyCoursesPanel extends JPanel {
 
         JLabel lblSemester = new JLabel("Semester:");
         lblSemester.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        semesterFilter = new JComboBox<>(new String[]{"All", "Fall 2025", "Spring 2025", "Monsoon 2024"});
+
+        // start with only "All" and then populate from DB asynchronously
+        semesterFilter = new JComboBox<>(new String[]{"All"});
         semesterFilter.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         semesterFilter.addActionListener(e -> applyFilters());
+
+        // load semesters from DB
+        loadSemesterOptionsAsync();
 
         JLabel lblSearch = new JLabel("Search:");
         lblSearch.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         searchField = new JTextField(20);
         searchField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        JButton btnSearch = new JButton("🔍");
+        JButton btnSearch = new JButton("Click to Search");
         btnSearch.addActionListener(e -> applyFilters());
 
         filterPanel.add(lblSemester);
@@ -82,14 +100,22 @@ public class MyCoursesPanel extends JPanel {
         tableCard.setLayout(new BorderLayout());
         tableCard.setBorder(BorderFactory.createEmptyBorder(20, 25, 20, 25));
 
-        JLabel lblTableTitle = new JLabel("📚 Courses List");
+        JLabel lblTableTitle = new JLabel("Courses List");
         lblTableTitle.setFont(new Font("Segoe UI", Font.BOLD, 18));
         lblTableTitle.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
         tableCard.add(lblTableTitle, BorderLayout.NORTH);
 
-        String[] cols = {"Course Code", "Title", "Semester", "Section", "Students", "Actions"};
+        // Columns: Day/Time, Room, Capacity, Students
+        String[] cols = {
+                "Course Code", "Title", "Semester",
+                "Day / Time", "Room", "Capacity", "Students"
+        };
+
         model = new DefaultTableModel(cols, 0) {
-            @Override public boolean isCellEditable(int r, int c) { return c == 5; }
+            @Override
+            public boolean isCellEditable(int r, int c) {
+                return false; // nothing editable in this view
+            }
         };
 
         table = new JTable(model);
@@ -101,11 +127,6 @@ public class MyCoursesPanel extends JPanel {
         table.setGridColor(new Color(230, 230, 230));
         table.setAutoCreateRowSorter(true);
 
-        // === ACTION BUTTONS (custom renderer/editor) ===
-        TableColumn actionColumn = table.getColumn("Actions");
-        actionColumn.setCellRenderer(new ActionRenderer());
-        actionColumn.setCellEditor(new ActionEditor(new JCheckBox()));
-
         JScrollPane sp = new JScrollPane(table);
         sp.setBorder(null);
         tableCard.add(sp, BorderLayout.CENTER);
@@ -113,9 +134,59 @@ public class MyCoursesPanel extends JPanel {
         contentPanel.add(tableCard);
         contentPanel.add(Box.createVerticalStrut(30));
 
-        // === Load Mock Data ===
-        loadMockData();
+        // === Initial placeholder row ===
+        model.addRow(new Object[]{"—", "No data loaded", "—", "-", "-", 0, 0});
     }
+
+    /** Load semester dropdown options from DB asynchronously */
+/** Load semester dropdown options from DB asynchronously (robust & tolerant) */
+private void loadSemesterOptionsAsync() {
+    new SwingWorker<List<String>, Void>() {
+        Exception error = null;
+
+        @Override
+        protected List<String> doInBackground() {
+            List<String> terms = new ArrayList<>();
+            String sql = "SELECT DISTINCT semester, year FROM sections WHERE semester IS NOT NULL AND semester <> '' " +
+                         "ORDER BY year DESC, semester DESC";
+            try (Connection conn = DBConnection.getErpConnection();
+                 PreparedStatement ps = conn.prepareStatement(sql);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String sem = rs.getString("semester");
+                    int yr = rs.getInt("year");
+                    if (sem == null) sem = "";
+                    String term = (sem.trim().isEmpty() ? String.valueOf(yr) : (sem.trim() + " " + yr));
+                    if (!term.trim().isEmpty() && !terms.contains(term)) terms.add(term);
+                }
+            } catch (Exception ex) {
+                error = ex;
+            }
+            return terms;
+        }
+
+        @Override
+        protected void done() {
+            try {
+                List<String> terms = get();
+                DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
+                model.addElement("All");
+                if (terms != null && !terms.isEmpty()) {
+                    for (String t : terms) model.addElement(t);
+                }
+                semesterFilter.setModel(model);
+
+            } catch (Exception ex) {
+                // keep "All" only if DB failed
+                DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
+                model.addElement("All");
+                semesterFilter.setModel(model);
+                ex.printStackTrace();
+            }
+        }
+    }.execute();
+}
+
 
     /** Applies search and semester filters */
     private void applyFilters() {
@@ -131,106 +202,113 @@ public class MyCoursesPanel extends JPanel {
                 String title = entry.getStringValue(1).toLowerCase();
                 String sem = entry.getStringValue(2);
                 boolean matchesSearch = searchText.isEmpty() || title.contains(searchText);
-                boolean matchesSemester = semesterSelected.equals("All") || sem.equals(semesterSelected);
+                boolean matchesSemester = semesterSelected == null || semesterSelected.equals("All") || sem.equals(semesterSelected);
                 return matchesSearch && matchesSemester;
             }
         });
     }
 
-    /** Loads mock data to populate the table */
-    private void loadMockData() {
-        List<Map<String, Object>> courses = List.of(
-                Map.of("code", "CS201", "title", "Data Structures", "semester", "Fall 2025", "section", "A", "students", 65),
-                Map.of("code", "CS301", "title", "Algorithms", "semester", "Spring 2025", "section", "B", "students", 60),
-                Map.of("code", "CS401", "title", "Artificial Intelligence", "semester", "Fall 2025", "section", "A", "students", 55),
-                Map.of("code", "CS110", "title", "Intro to Programming", "semester", "Monsoon 2024", "section", "C", "students", 72)
-        );
+    // ------------------ Public API ------------------
 
-        for (Map<String, Object> c : courses) {
-            model.addRow(new Object[]{
-                    c.get("code"),
-                    c.get("title"),
-                    c.get("semester"),
-                    c.get("section"),
-                    c.get("students"),
-                    "Actions"
-            });
-        }
+    /**
+     * Load sections for a given instructor and optional term (e.g. "Fall 2025").
+     * This runs the DB query in background and populates the table when done.
+     */
+    public void loadForInstructor(long instructorId, String term) {
+        this.currentInstructorId = instructorId;
+        this.currentTerm = term;
+        loadFromDbAsync();
     }
 
-    /** Renders "View Students" and "Enter Grades" buttons */
-    private static class ActionRenderer extends JPanel implements TableCellRenderer {
-        private final JButton btnView = new JButton("👩‍🎓 View Students");
-        private final JButton btnGrades = new JButton("🧾 Enter Grades");
+    /** Simple refresh of last loaded instructor/term */
+    public void refresh() {
+        loadFromDbAsync();
+    }
 
-        public ActionRenderer() {
-            setLayout(new FlowLayout(FlowLayout.CENTER, 10, 5));
-            setOpaque(true);
-            setupButton(btnView, new Color(33, 150, 243));
-            setupButton(btnGrades, new Color(76, 175, 80));
-        }
+    // ------------------ DB access (background) ------------------
 
-        private void setupButton(JButton btn, Color color) {
-            btn.setBackground(color);
-            btn.setForeground(Color.WHITE);
-            btn.setFont(new Font("Segoe UI", Font.BOLD, 13));
-            btn.setFocusPainted(false);
-            btn.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
-            btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+private void loadFromDbAsync() {
+    // show a quick loading row
+    SwingUtilities.invokeLater(() -> {
+        model.setRowCount(0);
+        model.addRow(new Object[]{"—", "Loading...", "—", "-", "-", 0, 0});
+    });
+
+    new SwingWorker<List<SectionRow>, Void>() {
+        private Exception error = null;
+
+        @Override
+        protected List<SectionRow> doInBackground() {
+            try (Connection conn = DBConnection.getErpConnection()) {
+                SectionDaoImpl dao = new SectionDaoImpl(conn);
+                // check maintenance
+                maintenanceOn = dao.isMaintenanceOn();
+                return dao.getSectionsByInstructor(currentInstructorId, currentTerm);
+            } catch (Exception ex) {
+                error = ex;
+                return null;
+            }
         }
 
         @Override
-        public Component getTableCellRendererComponent(JTable table, Object value,
-                                                       boolean isSelected, boolean hasFocus,
-                                                       int row, int column) {
-            setBackground(isSelected ? new Color(230, 240, 255) : Color.WHITE);
-            return this;
+        protected void done() {
+            if (error != null) {
+                model.setRowCount(0);
+                model.addRow(new Object[]{"—", "Failed to load: " + error.getMessage(), "—", "-", "-", 0, 0});
+                error.printStackTrace();
+                return;
+            }
+            try {
+                List<SectionRow> rows = get();
+                model.setRowCount(0);
+
+                // If combo only has "All", build term list from loaded rows and populate combo
+                boolean comboHasOnlyAll = (semesterFilter.getItemCount() <= 1);
+                List<String> builtTerms = new ArrayList<>();
+
+                if (rows == null || rows.isEmpty()) {
+                    model.addRow(new Object[]{"—", "No sections found", "—", "-", "-", 0, 0});
+                } else {
+                    for (SectionRow r : rows) {
+                        // build term string exactly as we will show it
+                        String termStr = (r.semester == null || r.semester.isBlank()) ? String.valueOf(r.year) : (r.semester + " " + r.year);
+                        // collect for combo if needed
+                        if (comboHasOnlyAll && !builtTerms.contains(termStr)) builtTerms.add(termStr);
+
+                        String dayTime = r.dayTime == null ? "-" : r.dayTime;
+                        String room = r.room == null ? "-" : r.room;
+                        int capacity = r.capacity;
+                        int seatsLeft = r.seatsLeft;
+                        int enrolled = capacity - seatsLeft;
+                        if (enrolled < 0) enrolled = 0;
+
+                        model.addRow(new Object[]{
+                                r.courseCode,
+                                r.title,
+                                termStr,
+                                dayTime,
+                                room,
+                                capacity,
+                                enrolled
+                        });
+                    }
+                }
+
+                // if carousel had only All, populate with terms found from rows (so filter works)
+                if (comboHasOnlyAll && !builtTerms.isEmpty()) {
+                    DefaultComboBoxModel<String> comboModel = new DefaultComboBoxModel<>();
+                    comboModel.addElement("All");
+                    for (String t : builtTerms) comboModel.addElement(t);
+                    semesterFilter.setModel(comboModel);
+                }
+
+            } catch (Exception ex) {
+                model.setRowCount(0);
+                model.addRow(new Object[]{"—", "Failed to load: " + ex.getMessage(), "—", "-", "-", 0, 0});
+                ex.printStackTrace();
+            }
         }
-    }
+    }.execute();
+}
 
-    /** Editor for action buttons */
-    private static class ActionEditor extends AbstractCellEditor implements TableCellEditor {
-        private final JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
-        private final JButton btnView = new JButton("👩‍🎓 View Students");
-        private final JButton btnGrades = new JButton("🧾 Enter Grades");
-
-        public ActionEditor(JCheckBox checkBox) {
-            panel.setOpaque(true);
-            setupButton(btnView, new Color(33, 150, 243));
-            setupButton(btnGrades, new Color(76, 175, 80));
-            panel.add(btnView);
-            panel.add(btnGrades);
-
-            btnView.addActionListener(e -> {
-                JOptionPane.showMessageDialog(panel, "Opening Student List...");
-                stopCellEditing();
-            });
-
-            btnGrades.addActionListener(e -> {
-                JOptionPane.showMessageDialog(panel, "Opening Gradebook...");
-                stopCellEditing();
-            });
-        }
-
-        private void setupButton(JButton btn, Color color) {
-            btn.setBackground(color);
-            btn.setForeground(Color.WHITE);
-            btn.setFont(new Font("Segoe UI", Font.BOLD, 13));
-            btn.setFocusPainted(false);
-            btn.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
-            btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        }
-
-        @Override
-        public Component getTableCellEditorComponent(JTable table, Object value,
-                                                     boolean isSelected, int row, int column) {
-            panel.setBackground(new Color(245, 245, 245));
-            return panel;
-        }
-
-        @Override
-        public Object getCellEditorValue() {
-            return null;
-        }
-    }
 }

@@ -409,79 +409,186 @@ private void deleteCourse() {
 
 
     // ------------------ Sections & combos ------------------
-    private void loadSectionsAndFillCombos() {
-        btnSectionRefresh.setEnabled(false);
-        sectionsModel.setRowCount(0);
-        cbCourses.removeAllItems();
-        cbInstructors.removeAllItems();
+// ------------------ Sections & combos (Course + Instructor filters) ------------------
+private void loadSectionsAndFillCombos() {
+    btnSectionRefresh.setEnabled(false);
+    sectionsModel.setRowCount(0);
+    cbCourses.removeAllItems();
+    cbInstructors.removeAllItems();
 
-        new SwingWorker<Void, Void>() {
-            Exception err = null;
-            @Override protected Void doInBackground() {
-                try (Connection conn = DBConnection.getErpConnection()) {
-                    // 1) fill courses combobox (course_id + code)
-                    String qCourses = "SELECT course_id, code FROM courses ORDER BY course_id";
-                    try (PreparedStatement pc = conn.prepareStatement(qCourses);
-                         ResultSet rc = pc.executeQuery()) {
-                        while (rc.next()) {
-                            long id = rc.getLong("course_id");
-                            String code = rc.getString("code");
-                            final CourseEntry ce = new CourseEntry(id, code == null ? ("#" + id) : code);
-                            SwingUtilities.invokeLater(() -> cbCourses.addItem(ce));
-                        }
-                    }
+    new SwingWorker<LoadDataBundle, Void>() {
+        Exception err = null;
 
-                    // 2) fill instructors combobox (include None)
-                    SwingUtilities.invokeLater(() -> cbInstructors.addItem(new InstructorEntry(null, "None")));
-                    String qInstr = "SELECT instructor_id, full_name FROM instructors ORDER BY instructor_id";
-                    try (PreparedStatement pi = conn.prepareStatement(qInstr);
-                         ResultSet ri = pi.executeQuery()) {
-                        while (ri.next()) {
-                            long id = ri.getLong("instructor_id");
-                            String name = ri.getString("full_name");
-                            final InstructorEntry ie = new InstructorEntry(id, name == null ? ("#" + id) : name);
-                            SwingUtilities.invokeLater(() -> cbInstructors.addItem(ie));
-                        }
+        @Override protected LoadDataBundle doInBackground() {
+            LoadDataBundle bundle = new LoadDataBundle();
+            try (Connection conn = DBConnection.getErpConnection()) {
+                // courses (add <All Courses>)
+                String qCourses = "SELECT course_id, code FROM courses ORDER BY course_id";
+                try (PreparedStatement pc = conn.prepareStatement(qCourses);
+                     ResultSet rc = pc.executeQuery()) {
+                    bundle.courses.add(new CourseEntry(0L, "<All Courses>"));
+                    while (rc.next()) {
+                        long id = rc.getLong("course_id");
+                        String code = rc.getString("code");
+                        bundle.courses.add(new CourseEntry(id, code == null ? ("#" + id) : code));
                     }
-
-                    // 3) load sections list with joins (show course code & instructor name)
-                    String qSections = "SELECT s.section_id, s.course_id, c.code AS course_code, "
-                            + "s.instructor_id, i.full_name AS instructor_name, s.day_time, s.room, s.capacity, s.semester, s.year "
-                            + "FROM sections s LEFT JOIN courses c ON s.course_id = c.course_id "
-                            + "LEFT JOIN instructors i ON s.instructor_id = i.instructor_id "
-                            + "ORDER BY s.section_id";
-                    try (PreparedStatement ps = conn.prepareStatement(qSections);
-                         ResultSet rs = ps.executeQuery()) {
-                        while (rs.next()) {
-                            Object sectionId = rs.getObject("section_id");
-                            Object courseId = rs.getObject("course_id");
-                            Object courseCode = rs.getObject("course_code");
-                            Object instrId = rs.getObject("instructor_id");
-                            Object instrName = rs.getObject("instructor_name");
-                            Object dayTime = rs.getObject("day_time");
-                            Object room = rs.getObject("room");
-                            Object cap = rs.getObject("capacity");
-                            Object sem = rs.getObject("semester");
-                            Object year = rs.getObject("year");
-                            sectionsModel.addRow(new Object[]{
-                                    sectionId, courseId, courseCode, instrId, instrName, dayTime, room, cap, sem, year
-                            });
-                        }
-                    }
-                } catch (Exception ex) {
-                    err = ex;
                 }
-                return null;
-            }
-            @Override protected void done() {
-                btnSectionRefresh.setEnabled(true);
-                if (err != null) {
-                    JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to load sections/courses: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+
+                // instructors (add None/All)
+                bundle.instructors.add(new InstructorEntry(null, "<All Instructors>"));
+                String qInstr = "SELECT instructor_id, full_name FROM instructors ORDER BY instructor_id";
+                try (PreparedStatement pi = conn.prepareStatement(qInstr);
+                     ResultSet ri = pi.executeQuery()) {
+                    while (ri.next()) {
+                        long id = ri.getLong("instructor_id");
+                        String name = ri.getString("full_name");
+                        bundle.instructors.add(new InstructorEntry(id, name == null ? ("#" + id) : name));
+                    }
                 }
+            } catch (Exception ex) {
+                err = ex;
             }
-        }.execute();
+            return bundle;
+        }
+
+        @Override protected void done() {
+            btnSectionRefresh.setEnabled(true);
+            if (err != null) {
+                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to load sections/courses: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            try {
+                LoadDataBundle bundle = get();
+                cbCourses.removeAllItems();
+                for (CourseEntry c : bundle.courses) cbCourses.addItem(c);
+
+                cbInstructors.removeAllItems();
+                for (InstructorEntry i : bundle.instructors) cbInstructors.addItem(i);
+
+                // ensure single listeners
+                safeSetListenerOnCoursesCombo();
+                safeSetListenerOnInstructorsCombo();
+
+                // initial load: show all
+                loadSections(null, null);
+
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Internal error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }.execute();
+}
+
+private void safeSetListenerOnCoursesCombo() {
+    for (java.awt.event.ActionListener al : cbCourses.getActionListeners()) {
+        cbCourses.removeActionListener(al);
     }
+    cbCourses.addActionListener(ev -> {
+        CourseEntry selCourse = (CourseEntry) cbCourses.getSelectedItem();
+        Long courseId = (selCourse == null || selCourse.id == 0L) ? null : selCourse.id;
 
+        InstructorEntry selInstr = (InstructorEntry) cbInstructors.getSelectedItem();
+        Long instrId = (selInstr == null || selInstr.id == null) ? null : selInstr.id;
+
+        loadSections(courseId, instrId);
+    });
+}
+private void safeSetListenerOnInstructorsCombo() {
+    for (java.awt.event.ActionListener al : cbInstructors.getActionListeners()) {
+        cbInstructors.removeActionListener(al);
+    }
+    cbInstructors.addActionListener(ev -> {
+        CourseEntry selCourse = (CourseEntry) cbCourses.getSelectedItem();
+        Long courseId = (selCourse == null || selCourse.id == 0L) ? null : selCourse.id;
+
+        InstructorEntry selInstr = (InstructorEntry) cbInstructors.getSelectedItem();
+        Long instrId = (selInstr == null || selInstr.id == null || "<All Instructors>".equals(selInstr.name)) ? null : selInstr.id;
+
+        loadSections(courseId, instrId);
+    });
+}
+
+/**
+ * Load sections, optionally filtering by courseId and/or instructorId.
+ * If courseId == null -> all courses. If instrId == null -> all instructors.
+ */
+private void loadSections(Long courseId, Long instrId) {
+    btnSectionRefresh.setEnabled(false);
+    sectionsModel.setRowCount(0);
+
+    new SwingWorker<java.util.List<Object[]>, Void>() {
+        Exception err = null;
+
+        @Override protected java.util.List<Object[]> doInBackground() {
+            java.util.List<Object[]> rows = new java.util.ArrayList<>();
+            StringBuilder q = new StringBuilder(
+                "SELECT s.section_id, s.course_id, c.code AS course_code, " +
+                "s.instructor_id, i.full_name AS instructor_name, s.day_time, s.room, s.capacity, s.semester, s.year " +
+                "FROM sections s LEFT JOIN courses c ON s.course_id = c.course_id " +
+                "LEFT JOIN instructors i ON s.instructor_id = i.instructor_id "
+            );
+
+            boolean whereAdded = false;
+            if (courseId != null) {
+                q.append(" WHERE s.course_id = ? ");
+                whereAdded = true;
+            }
+            if (instrId != null) {
+                q.append(whereAdded ? " AND " : " WHERE ");
+                q.append(" s.instructor_id = ? ");
+            }
+            q.append(" ORDER BY s.section_id");
+
+            try (Connection conn = DBConnection.getErpConnection();
+                 PreparedStatement ps = conn.prepareStatement(q.toString())) {
+                int idx = 1;
+                if (courseId != null) ps.setLong(idx++, courseId);
+                if (instrId != null) ps.setLong(idx++, instrId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        Object sectionId = rs.getObject("section_id");
+                        Object cId = rs.getObject("course_id");
+                        Object courseCode = rs.getObject("course_code");
+                        Object instrIdObj = rs.getObject("instructor_id");
+                        Object instrName = rs.getObject("instructor_name");
+                        Object dayTime = rs.getObject("day_time");
+                        Object room = rs.getObject("room");
+                        Object cap = rs.getObject("capacity");
+                        Object sem = rs.getObject("semester");
+                        Object year = rs.getObject("year");
+                        rows.add(new Object[]{ sectionId, cId, courseCode, instrIdObj, instrName, dayTime, room, cap, sem, year });
+                    }
+                }
+            } catch (Exception ex) {
+                err = ex;
+            }
+            return rows;
+        }
+
+        @Override protected void done() {
+            btnSectionRefresh.setEnabled(true);
+            if (err != null) {
+                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to load sections: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            try {
+                java.util.List<Object[]> rows = get();
+                SwingUtilities.invokeLater(() -> {
+                    sectionsModel.setRowCount(0);
+                    for (Object[] r : rows) sectionsModel.addRow(r);
+                });
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Internal error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }.execute();
+}
+
+// small holder for data transferred from background worker
+private static class LoadDataBundle {
+    final java.util.List<CourseEntry> courses = new java.util.ArrayList<>();
+    final java.util.List<InstructorEntry> instructors = new java.util.ArrayList<>();
+}
     private void addSection() {
         final CourseEntry selectedCourse = (CourseEntry) cbCourses.getSelectedItem();
         final InstructorEntry selectedInstructor = (InstructorEntry) cbInstructors.getSelectedItem();

@@ -1,18 +1,30 @@
 package edu.univ.erp.data;
 
-/**
- * Simple POJO representing a section row returned by SectionDao.
- */
+import java.sql.Date;
+import java.sql.Timestamp;
+
 public class SectionRow {
     public long sectionId;
+    public long courseId;
     public String courseCode;
     public String title;
     public int credits;
+
+    public long instructorId;
     public String instructorName;
-    public int capacity;
-    public int seatsLeft;
+
+    public String dayTime;
+    public String room;
+    public String sectionNo;
+
     public String semester;
     public int year;
-    public String dayTime;
-    public String sectionNo; // optional if you have one in DB
+
+    public int capacity;
+    public int seatsLeft;
+    public int enrolled;
+
+    public Date dropDeadline;
+    public Timestamp createdAt;
+    public Timestamp updatedAt;
 }

@@ -27,6 +27,10 @@ public class InstructorPanel extends JPanel {
     // Real panels
     private final JPanel dashboardPanel = new DashboardPanel();
     private final JPanel coursesPanel = new MyCoursesPanel();
+    // current instructor context (set after login)
+private long currentInstructorId = 0L;
+private String currentTerm = null;
+
     private final JPanel gradebookPanel = new CourseDetailsPanel();
     private final JPanel timetablePanel = new InstructorTimetablePanel();
     private final JPanel announcementsPanel = createPlaceholderPanel("📢 Announcements - Post or view messages");
@@ -104,7 +108,14 @@ public class InstructorPanel extends JPanel {
 
         // === Navigation actions ===
         btnDashboard.addActionListener(e -> { setNavActive(btnDashboard); showCard("dashboard"); });
-        btnCourses.addActionListener(e -> { setNavActive(btnCourses); showCard("courses"); });
+btnCourses.addActionListener(e -> {
+    setNavActive(btnCourses);
+    // reload when instructor known
+    if (currentInstructorId > 0 && coursesPanel instanceof edu.univ.erp.ui.Instructor.MyCoursesPanel) {
+        ((edu.univ.erp.ui.Instructor.MyCoursesPanel) coursesPanel).loadForInstructor(currentInstructorId, currentTerm);
+    }
+    showCard("courses");
+});
         btnGradebook.addActionListener(e -> { setNavActive(btnGradebook); showCard("gradebook"); });
         btnTimetable.addActionListener(e -> { setNavActive(btnTimetable); showCard("timetable"); });
         btnAnnouncements.addActionListener(e -> { setNavActive(btnAnnouncements); showCard("announcements"); });
@@ -131,6 +142,8 @@ public class InstructorPanel extends JPanel {
         return b;
     }
 
+    
+
     /** Highlight the selected nav item */
     private void setNavActive(AbstractButton active) {
         for (Component c : navButtonsContainer.getComponents()) {
@@ -142,6 +155,23 @@ public class InstructorPanel extends JPanel {
         active.setBackground(Theme.SIDEBAR_ACTIVE);
         active.setForeground(Color.WHITE);
     }
+
+    /**
+ * Called after login to set which instructor this panel should show.
+ * This will trigger MyCoursesPanel.loadForInstructor(...) if available.
+ */
+public void setInstructorContext(long instructorId, String term) {
+    this.currentInstructorId = instructorId;
+    this.currentTerm = term;
+    try {
+        if (coursesPanel instanceof edu.univ.erp.ui.Instructor.MyCoursesPanel && instructorId > 0) {
+            ((edu.univ.erp.ui.Instructor.MyCoursesPanel) coursesPanel).loadForInstructor(instructorId, term);
+        }
+    } catch (Exception ex) {
+        ex.printStackTrace();
+    }
+}
+
 
     /** Show page inside CardLayout */
     private void showCard(String name) {

@@ -9,6 +9,8 @@ public interface SectionDao {
     int getSeatsLeft(long sectionId) throws Exception;
     boolean registerStudentInSection(long studentId, long sectionId) throws Exception;
     boolean isMaintenanceOn() throws Exception;
+    List<SectionRow> getSectionsByInstructor(long instructorId, String term) throws Exception;
+
     boolean isDropDeadlineOver(long sectionId) throws Exception;
 
 }

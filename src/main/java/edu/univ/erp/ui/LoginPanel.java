@@ -5,6 +5,10 @@ import edu.univ.erp.util.DBConnection;
 import edu.univ.erp.data.*;
 
 import javax.imageio.ImageIO;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -254,9 +258,82 @@ public class LoginPanel extends JPanel {
                     } else {
                         if (result == 1) {
                             main.showCard("admin");
-                        } else if (result == 2) {
-                            main.showCard("instructor");
-                        } else if (result == 3) {
+                      } else if (result == 2) {
+    // Instructor login — resolve instructor id then set context so MyCoursesPanel loads
+    long instructorId = 0L;
+
+    try {
+        // 1) Optional helper via AuthService if present
+        try {
+            java.lang.reflect.Method m = AuthService.class.getMethod("getInstructorIdByUsername", String.class);
+            Object val = m.invoke(null, username);
+            if (val != null) {
+                if (val instanceof Number) instructorId = ((Number) val).longValue();
+                else instructorId = Long.parseLong(String.valueOf(val));
+            }
+        } catch (NoSuchMethodException ignored) {}
+
+        try (Connection conn = DBConnection.getErpConnection()) {
+            // 2) Try instructors.username (you already added this column)
+            if (instructorId == 0L) {
+                try (java.sql.PreparedStatement ps0 = conn.prepareStatement(
+                        "SELECT instructor_id FROM instructors WHERE username = ? LIMIT 1")) {
+                    ps0.setString(1, username);
+                    try (java.sql.ResultSet rs0 = ps0.executeQuery()) {
+                        if (rs0.next()) instructorId = rs0.getLong("instructor_id");
+                    }
+                }
+            }
+
+            // 3) Try mapping users.email -> users.id -> instructors.instructor_id
+            if (instructorId == 0L) {
+                try (java.sql.PreparedStatement pus = conn.prepareStatement(
+                        "SELECT id FROM users WHERE email = ? LIMIT 1")) {
+                    pus.setString(1, username);
+                    try (java.sql.ResultSet rus = pus.executeQuery()) {
+                        if (rus.next()) {
+                            long userId = rus.getLong("id");
+                            try (java.sql.PreparedStatement pis = conn.prepareStatement(
+                                    "SELECT instructor_id FROM instructors WHERE instructor_id = ? LIMIT 1")) {
+                                pis.setLong(1, userId);
+                                try (java.sql.ResultSet ris = pis.executeQuery()) {
+                                    if (ris.next()) instructorId = ris.getLong("instructor_id");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4) Last resort: full_name LIKE match
+            if (instructorId == 0L) {
+                try (java.sql.PreparedStatement ps1 = conn.prepareStatement(
+                        "SELECT instructor_id FROM instructors WHERE full_name LIKE ? LIMIT 1")) {
+                    ps1.setString(1, "%" + username + "%");
+                    try (java.sql.ResultSet rs1 = ps1.executeQuery()) {
+                        if (rs1.next()) instructorId = rs1.getLong("instructor_id");
+                    }
+                }
+            }
+        }
+    } catch (Exception ex) {
+        ex.printStackTrace();
+    }
+
+    System.out.println("DEBUG: Resolved instructorId=" + instructorId + " for username=" + username);
+
+    if (instructorId > 0) {
+        try { main.getInstructorPanel().setInstructorContext(instructorId, null); } catch (Exception ex) { ex.printStackTrace(); }
+    } else {
+        System.out.println("Warning: instructor id not found for username=" + username);
+    }
+
+    main.showCard("instructor");
+}
+
+
+
+else if (result == 3) {
                             String sid = AuthService.getStudentIdByUsername(username);
                             if (sid == null) {
                                 statusLabel.setText("Student record not found for this username/roll.");

@@ -58,6 +58,11 @@ public class MainFrame extends JFrame {
     setCurrentStudentId(studentId);
     showCard("student");
 }
+// expose instructor panel so login flow can set context
+public edu.univ.erp.ui.Instructor.InstructorPanel getInstructorPanel() {
+    return instructorPanel;
+}
+
 
 
     public void showCard(String key) {

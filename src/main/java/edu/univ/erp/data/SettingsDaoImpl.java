@@ -6,8 +6,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 /**
- * Implementation of SettingsDao for your current schema:
- * table `settings` with columns `key` and `value`.
+ * Implementation of SettingsDao for your settings table:
+ * key | value | updated_at
  */
 public class SettingsDaoImpl implements SettingsDao {
 
@@ -33,12 +33,9 @@ public class SettingsDaoImpl implements SettingsDao {
         return false;
     }
 
-    /**
-     * Optional helper to toggle the maintenance flag.
-     * Returns true if an update row was modified.
-     */
+    @Override
     public boolean setMaintenance(boolean on) {
-        final String sql = "UPDATE settings SET value = ? WHERE `key` = 'maintenance_on'";
+        final String sql = "UPDATE settings SET value = ?, updated_at = NOW() WHERE `key` = 'maintenance_on'";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, on ? "true" : "false");
             int updated = ps.executeUpdate();

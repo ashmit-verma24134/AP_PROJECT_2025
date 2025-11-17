@@ -78,7 +78,7 @@ public final class Theme {
         int g = (rgbHex >> 8) & 0xFF;
         int b = (rgbHex) & 0xFF;
         return new Color(r, g, b, Math.max(0, Math.min(255, (int) (alpha * 255))));
-    }
+    }   
 
     /**
      * Convenience: returns a slightly darker shade for hover/active visuals.

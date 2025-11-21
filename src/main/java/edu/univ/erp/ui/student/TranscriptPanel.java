@@ -157,7 +157,16 @@ String sql = """
     LEFT JOIN grades g ON g.enrollment_id = e.enrollment_id
     WHERE e.student_id = ?
       AND e.status IN ('ENROLLED','COMPLETED')
-    ORDER BY s.year DESC, s.semester DESC
+    ORDER BY s.year DESC, 
+             CASE s.semester
+                WHEN 'Monsoon' THEN 1
+                WHEN 'Fall' THEN 1
+                WHEN 'Winter' THEN 2
+                WHEN 'Spring' THEN 2
+                WHEN 'Summer' THEN 3
+                ELSE 4
+             END ASC,
+             c.code ASC
 """;
 
                     try (PreparedStatement ps = conn.prepareStatement(sql)) {

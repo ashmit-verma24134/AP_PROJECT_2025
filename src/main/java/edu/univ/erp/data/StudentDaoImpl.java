@@ -230,15 +230,30 @@ public class StudentDaoImpl implements StudentDao {
         if (studentId == null) return out;
 
         String sql =
-            "SELECT c.code AS course_code, c.title AS course_title, s.room, s.day_time, s.section_id " +
-            "FROM enrollments e " +
-            "JOIN sections s ON e.section_id = s.section_id " +
-            "JOIN courses c ON s.course_id = c.course_id " +
-            "WHERE e.student_id = ? AND e.status = 'ENROLLED' " +
-            "AND s.day_time IS NOT NULL " +
-            "ORDER BY FIELD(SUBSTRING_INDEX(s.day_time,' ',1),'Mon','Tue','Wed','Thu','Fri','Sat','Sun'), " +
-            "STR_TO_DATE(SUBSTRING_INDEX(s.day_time,' ', -1), '%H:%i') " +
-            "LIMIT ?";
+    "SELECT " +
+    "  c.title AS course_title, " +
+    "  t.room, " +
+    "  CONCAT( " +
+    "     CASE t.day_of_week " +
+    "         WHEN 1 THEN 'Mon' " +
+    "         WHEN 2 THEN 'Tue' " +
+    "         WHEN 3 THEN 'Wed' " +
+    "         WHEN 4 THEN 'Thu' " +
+    "         WHEN 5 THEN 'Fri' " +
+    "         WHEN 6 THEN 'Sat' " +
+    "         WHEN 7 THEN 'Sun' " +
+    "     END, ' ', " +
+    "     DATE_FORMAT(t.start_time, '%H:%i'), '-', " +
+    "     DATE_FORMAT(t.end_time, '%H:%i') " +
+    "  ) AS day_time " +
+    "FROM timetable t " +
+    "JOIN sections sc ON t.section_id = sc.section_id " +
+    "JOIN courses c ON sc.course_id = c.course_id " +
+    "JOIN enrollments e ON e.section_id = sc.section_id " +
+    "WHERE e.student_id = ? " +
+    "ORDER BY t.day_of_week, t.start_time " +
+    "LIMIT ?";
+
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             try { ps.setLong(1, Long.parseLong(studentId)); }

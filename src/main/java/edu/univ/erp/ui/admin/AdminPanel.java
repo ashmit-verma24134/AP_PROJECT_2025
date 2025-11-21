@@ -30,6 +30,10 @@ public class AdminPanel extends JPanel {
 
     // maintenance banner shown under header
     private final JLabel maintenanceBanner = new JLabel("", SwingConstants.CENTER);
+    
+    // ✅ Add these fields at class level
+    private String adminUsername = "Admin";
+    private JLabel welcomeLabel; // Store reference to update later
 
     public AdminPanel(MainFrame mainFrame) {
         this.mainFrame = mainFrame;
@@ -55,11 +59,22 @@ public class AdminPanel extends JPanel {
         JPanel header = new JPanel(new BorderLayout());
         header.setBackground(Theme.PRIMARY);
         header.setBorder(new EmptyBorder(8, Theme.PADDING_X, 8, Theme.PADDING_X));
-        header.setPreferredSize(new Dimension(0, 56)); // visually similar height
+        header.setPreferredSize(new Dimension(0, 56));
 
-        JLabel title = new JLabel(" IIITD PortalAdmin ERP");
+        // ✅ Create title and welcome label
+        JLabel title = new JLabel("✨ IIITD Portal—Admin ERP");
         title.setFont(Theme.HEADER_FONT);
         title.setForeground(Color.WHITE);
+
+        welcomeLabel = new JLabel("Welcome, " + adminUsername);
+        welcomeLabel.setFont(Theme.BODY_FONT);
+        welcomeLabel.setForeground(Color.WHITE);
+
+        JPanel titlePanel = new JPanel();
+        titlePanel.setLayout(new BoxLayout(titlePanel, BoxLayout.Y_AXIS));
+        titlePanel.setOpaque(false);
+        titlePanel.add(title);
+        titlePanel.add(welcomeLabel);
 
         JButton logout = new JButton("Logout");
         logout.setBackground(Theme.PRIMARY_DARK);
@@ -69,27 +84,25 @@ public class AdminPanel extends JPanel {
         logout.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
         logout.setToolTipText("Logout and return to login (Alt+L)");
         logout.addActionListener(e -> {
-            // clear session tokens here if you have a session manager
             mainFrame.showCard("login");
         });
         logout.setMnemonic(KeyEvent.VK_L);
 
-        header.add(title, BorderLayout.WEST);
+        header.add(titlePanel, BorderLayout.WEST);
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         right.setOpaque(false);
         right.add(logout);
         header.add(right, BorderLayout.EAST);
 
-        // maintenance banner area — initially hidden
+        // maintenance banner area
         maintenanceBanner.setOpaque(true);
         maintenanceBanner.setVisible(false);
         maintenanceBanner.setFont(maintenanceBanner.getFont().deriveFont(Font.BOLD, 13f));
-        maintenanceBanner.setBackground(new Color(255, 240, 240)); // pale red-ish
-        maintenanceBanner.setForeground(new Color(140, 0, 0));      // dark red text
+        maintenanceBanner.setBackground(new Color(255, 240, 240));
+        maintenanceBanner.setForeground(new Color(140, 0, 0));
         maintenanceBanner.setBorder(new EmptyBorder(6, 8, 6, 8));
 
-        // Put header and banner in a container so NORTH has both (header at top, banner below)
         JPanel headerContainer = new JPanel(new BorderLayout());
         headerContainer.add(header, BorderLayout.NORTH);
         headerContainer.add(maintenanceBanner, BorderLayout.SOUTH);
@@ -114,14 +127,10 @@ public class AdminPanel extends JPanel {
 
         sidebar.add(Box.createRigidArea(new Dimension(0, 8)));
 
-        /*
-         * Build nav items in desired order. Keys are nav labels,
-         * values are the cardName that will be used in pages map.
-         */
         Map<String, String> navItems = new LinkedHashMap<>();
         navItems.put("Users", "Users");
         navItems.put("Sections", "Sections");
-        navItems.put("Settings", "Settings"); // NEW settings item
+        navItems.put("Settings", "Settings");
 
         ButtonGroup navGroup = new ButtonGroup();
 
@@ -137,7 +146,6 @@ public class AdminPanel extends JPanel {
         sidebar.add(Box.createVerticalGlue());
         add(sidebar, BorderLayout.WEST);
 
-        // Cards container
         cards.setOpaque(false);
         cards.setBorder(new EmptyBorder(Theme.PADDING_Y, Theme.PADDING_X, Theme.PADDING_Y, Theme.PADDING_X));
         add(cards, BorderLayout.CENTER);
@@ -171,7 +179,6 @@ public class AdminPanel extends JPanel {
     }
 
     // -------------------- Page registration --------------------
-    /** Add page and optional nav binding (navLabel is the cardName of navButtons map) */
     public void addPage(String name, JPanel panel, String navLabel) {
         pages.put(name, panel);
         cards.add(panel, name);
@@ -186,14 +193,9 @@ public class AdminPanel extends JPanel {
     }
 
     private void registerDefaultPages() {
-        // Users (existing panel)
         addPage("Users", new AdminUsersPanel(), "Users");
-
-        // Sections/Courses — keep your existing panels (I placed AdminCourseSectionPanel as example)
         addPage("Sections", new AdminCourseSectionPanel(), "Sections");
-        addPage("Courses", new AdminCourseSectionPanel(), null); // optional course view
-
-        // Settings (new) — pass a callback that refreshes the banner
+        addPage("Courses", new AdminCourseSectionPanel(), null);
         addPage("Settings", new AdminSettingsPanel(() -> refreshMaintenanceBanner()), "Settings");
     }
 
@@ -209,18 +211,12 @@ public class AdminPanel extends JPanel {
     }
 
     // -------------------- Maintenance banner --------------------
-    /**
-     * Reads settings table and shows/hides banner.
-     * Uses SettingsDaoImpl(Connection) which matches your DAO style.
-     */
     public void refreshMaintenanceBanner() {
         boolean on = false;
-        try (Connection conn = DBConnection.getErpConnection();
-) {
+        try (Connection conn = DBConnection.getErpConnection()) {
             SettingsDao sd = new SettingsDaoImpl(conn);
             on = sd.isMaintenanceOn();
         } catch (SQLException ex) {
-            // log to stderr but don't break UI
             System.err.println("[AdminPanel] Failed to read maintenance flag: " + ex.getMessage());
             on = false;
         }
@@ -232,8 +228,17 @@ public class AdminPanel extends JPanel {
             maintenanceBanner.setVisible(false);
         }
 
-        // revalidate layout in case visibility changed
         maintenanceBanner.revalidate();
         maintenanceBanner.repaint();
+    }
+
+    /**
+     * Set the admin username to display
+     */
+    public void setAdminUsername(String username) {
+        this.adminUsername = username == null ? "Admin" : username;
+        if (welcomeLabel != null) {
+            welcomeLabel.setText("Welcome, " + this.adminUsername);
+        }
     }
 }

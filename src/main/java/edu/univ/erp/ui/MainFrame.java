@@ -77,4 +77,8 @@ public edu.univ.erp.ui.Instructor.InstructorPanel getInstructorPanel() {
             new MainFrame().setVisible(true);
         });
     }
+
+    public AdminPanel getAdminPanel() {
+    return adminPanel;
+}
 }

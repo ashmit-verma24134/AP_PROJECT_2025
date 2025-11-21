@@ -257,9 +257,16 @@ public class LoginPanel extends JPanel {
                         statusLabel.setText("Login failed — check credentials or role.");
                     } else {
                         if (result == 1) {
-                            main.showCard("admin");
-                      } else if (result == 2) {
-    // Instructor login — resolve instructor id then set context so MyCoursesPanel loads
+    // Admin login - pass username
+    try {
+        main.getAdminPanel().setAdminUsername(username);
+    } catch (Exception ex) {
+        ex.printStackTrace();
+    }
+    main.showCard("admin");
+}
+                      else if (result == 2) {
+    // Instructor login – resolve instructor id then set context so MyCoursesPanel loads
     long instructorId = 0L;
 
     try {
@@ -323,14 +330,18 @@ public class LoginPanel extends JPanel {
     System.out.println("DEBUG: Resolved instructorId=" + instructorId + " for username=" + username);
 
     if (instructorId > 0) {
-        try { main.getInstructorPanel().setInstructorContext(instructorId, null); } catch (Exception ex) { ex.printStackTrace(); }
+        try { 
+            // Pass username to setInstructorContext (3 parameter version)
+            main.getInstructorPanel().setInstructorContext(instructorId, null, username); 
+        } catch (Exception ex) { 
+            ex.printStackTrace(); 
+        }
     } else {
         System.out.println("Warning: instructor id not found for username=" + username);
     }
 
     main.showCard("instructor");
 }
-
 
 
 else if (result == 3) {

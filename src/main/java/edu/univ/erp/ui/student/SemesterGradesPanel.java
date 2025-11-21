@@ -103,15 +103,24 @@ public class SemesterGradesPanel extends JPanel {
                 Map<String, List<CourseRow>> bySemester = new LinkedHashMap<>();
 
                 String sql =
-                    "SELECT sec.semester AS sem_label, sec.year AS sem_year, e.enrollment_id, c.code AS course_code, " +
-                    "       c.title AS course_title, c.credits AS credits, " +
-                    "       g_final.final_grade AS final_letter, g_final.score AS final_score " +
-                    "FROM enrollments e " +
-                    "JOIN sections sec ON e.section_id = sec.section_id " +
-                    "JOIN courses c ON sec.course_id = c.course_id " +
-                    "LEFT JOIN grades g_final ON g_final.enrollment_id = e.enrollment_id AND LOWER(g_final.component) = 'final' " +
-                    "WHERE e.student_id = ? AND e.status IN ('ENROLLED','COMPLETED') " +
-                    "ORDER BY sec.year DESC, sec.semester DESC, c.code";
+    "SELECT sec.semester AS sem_label, sec.year AS sem_year, e.enrollment_id, c.code AS course_code, " +
+    "       c.title AS course_title, c.credits AS credits, " +
+    "       g_final.final_grade AS final_letter, g_final.score AS final_score " +
+    "FROM enrollments e " +
+    "JOIN sections sec ON e.section_id = sec.section_id " +
+    "JOIN courses c ON sec.course_id = c.course_id " +
+    "LEFT JOIN grades g_final ON g_final.enrollment_id = e.enrollment_id AND LOWER(g_final.component) = 'final' " +
+    "WHERE e.student_id = ? AND e.status IN ('ENROLLED','COMPLETED') " +
+    "ORDER BY sec.year DESC, " +
+    "         CASE sec.semester " +
+    "            WHEN 'Monsoon' THEN 1 " +
+    "            WHEN 'Fall' THEN 1 " +
+    "            WHEN 'Winter' THEN 2 " +
+    "            WHEN 'Spring' THEN 2 " +
+    "            WHEN 'Summer' THEN 3 " +
+    "            ELSE 4 " +
+    "         END ASC, " +
+    "         c.code ASC";
 
                 try (Connection conn = DBConnection.getErpConnection();
                      PreparedStatement ps = conn.prepareStatement(sql)) {

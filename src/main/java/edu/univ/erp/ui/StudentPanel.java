@@ -8,6 +8,8 @@ import edu.univ.erp.util.DBConnection;
 import javax.swing.*;
 import java.awt.*;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 
 /**
  * StudentPanel — Central authenticated student UI.
@@ -22,6 +24,8 @@ public class StudentPanel extends JPanel {
     // Sidebar navigation containers
     private final JPanel navPanel = new JPanel(null);
     private final JPanel navButtonsContainer = new JPanel();
+    private String studentUsername = "Student"; // Add as class field
+private JLabel welcomeLabel; // Add as class field
 
     // CardLayout container
     private final JPanel cards = new JPanel(new CardLayout());
@@ -49,9 +53,23 @@ public class StudentPanel extends JPanel {
         header.setOpaque(false);
         header.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
 
-        JLabel title = new JLabel("Student Portal");
-        title.setFont(Theme.TITLE_FONT);
-        header.add(title, BorderLayout.WEST);
+        //JLabel title = new JLabel("Student Portal");
+        //title.setFont(Theme.TITLE_FONT);
+        //header.add(title, BorderLayout.WEST);
+
+        JPanel leftHeader = new JPanel();
+leftHeader.setLayout(new BoxLayout(leftHeader, BoxLayout.Y_AXIS));
+leftHeader.setOpaque(false);
+
+JLabel title = new JLabel("Student Portal");
+title.setFont(Theme.TITLE_FONT);
+
+welcomeLabel = new JLabel("Welcome, " + studentUsername);
+welcomeLabel.setFont(Theme.BODY_FONT);
+
+leftHeader.add(title);
+leftHeader.add(welcomeLabel);
+header.add(leftHeader, BorderLayout.WEST);
 
         JButton logout = new JButton("Logout");
         logout.addActionListener(e -> mainFrame.showCard("login"));
@@ -184,20 +202,46 @@ public class StudentPanel extends JPanel {
 
     // ---------- LOGIN PROPAGATION ----------
     public void setStudentId(String studentId) {
-        this.studentId = studentId;
-
-        dashboardPanel.setStudentId(studentId);
-        catalogPanel.setStudentId(studentId);
-        timetablePanel.setStudentId(studentId);
-        transcriptPanel.setStudentId(studentId);
-        gradesPanel.setStudentId(studentId);
-        myCoursesPanel.setStudentId(studentId);
-
-        catalogPanel.reloadFromDb(null);
-        timetablePanel.reloadForStudent();
-        transcriptPanel.reloadForStudent();
+    this.studentId = studentId;
+    
+    // Try to get actual name from DB
+    try (Connection conn = DBConnection.getErpConnection()) {
+        String q = "SELECT s.full_name, s.roll_no, u.username " +
+                   "FROM students s LEFT JOIN auth_db.users u ON s.user_id = u.id WHERE s.student_id = ? LIMIT 1";
+        try (PreparedStatement ps = conn.prepareStatement(q)) {
+            try {
+                ps.setLong(1, Long.parseLong(studentId));
+            } catch (NumberFormatException e) {
+                ps.setString(1, studentId);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String uname = rs.getString("username");
+                    String full = rs.getString("full_name");
+                    String roll = rs.getString("roll_no");
+                    if (uname != null && !uname.isEmpty()) studentUsername = uname;
+                    else if (full != null && !full.isEmpty()) studentUsername = full;
+                    else if (roll != null && !roll.isEmpty()) studentUsername = roll;
+                    
+                    welcomeLabel.setText("Welcome, " + studentUsername);
+                }
+            }
+        }
+    } catch (Exception ex) {
+        ex.printStackTrace();
     }
 
+    dashboardPanel.setStudentId(studentId);
+    catalogPanel.setStudentId(studentId);
+    timetablePanel.setStudentId(studentId);
+    transcriptPanel.setStudentId(studentId);
+    gradesPanel.setStudentId(studentId);
+    myCoursesPanel.setStudentId(studentId);
+
+    catalogPanel.reloadFromDb(null);
+    timetablePanel.reloadForStudent();
+    transcriptPanel.reloadForStudent();
+}
     // ---------- Maintenance Banner ----------
     public void refreshMaintenance() {
         new SwingWorker<Boolean, Void>() {

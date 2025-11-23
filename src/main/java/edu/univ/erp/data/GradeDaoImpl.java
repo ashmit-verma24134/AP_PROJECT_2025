@@ -234,6 +234,136 @@ public class GradeDaoImpl implements GradeDao {
         return -1L;
     }
 
+    /**
+ * Create per-enrollment component rows by copying the section templates.
+ * This method will insert into `grades` rows for the given enrollment based
+ * on the assessment_component rows for the section. It will skip components
+ * that already exist for this enrollment (protects against double-copy).
+ *
+ * Returns number of rows inserted.
+ */
+
+    
+@Override
+public int createComponentsForEnrollment(long enrollmentId, long sectionId) throws SQLException {
+    // 1) select all section-level components (template)
+    final String selectTemplates =
+        "SELECT id AS comp_id, name AS comp_name, weight, max_score " +
+        "FROM assessment_component " +
+        "WHERE section_id = ?";
+
+    // 2) check if a component name already exists for this enrollment
+    final String checkSql =
+        "SELECT 1 FROM grades WHERE enrollment_id = ? AND component = ? LIMIT 1";
+
+    // 3) insert into grades when missing
+    final String insertSql =
+        "INSERT INTO grades (enrollment_id, component, score, max_score, weight, created_at, updated_at) " +
+        "VALUES (?, ?, NULL, ?, ?, NOW(), NOW())";
+
+    int inserted = 0;
+
+    try (PreparedStatement psTpl = conn.prepareStatement(selectTemplates)) {
+        psTpl.setLong(1, sectionId);
+        try (ResultSet rs = psTpl.executeQuery()) {
+            // prepare check + insert statements outside loop for reuse
+            try (PreparedStatement psCheck = conn.prepareStatement(checkSql);
+                 PreparedStatement psInsert = conn.prepareStatement(insertSql)) {
+
+                while (rs.next()) {
+                    String compName = rs.getString("comp_name");
+                    Double weight = rs.getObject("weight") == null ? null : rs.getDouble("weight");
+                    Double maxScore = rs.getObject("max_score") == null ? null : rs.getDouble("max_score");
+
+                    // skip if already present for this enrollment
+                    psCheck.setLong(1, enrollmentId);
+                    psCheck.setString(2, compName);
+                    try (ResultSet r2 = psCheck.executeQuery()) {
+                        if (r2.next()) {
+                            continue; // already exists
+                        }
+                    }
+
+                    // insert
+                    psInsert.setLong(1, enrollmentId);
+                    psInsert.setString(2, compName);
+                    if (maxScore == null) psInsert.setNull(3, Types.DOUBLE);
+                    else psInsert.setDouble(3, maxScore);
+                    if (weight == null) psInsert.setNull(4, Types.DOUBLE);
+                    else psInsert.setDouble(4, weight);
+
+                    psInsert.addBatch();
+                    inserted++;
+                }
+
+                if (inserted > 0) {
+                    psInsert.executeBatch();
+                }
+            }
+        }
+    }
+
+    return inserted;
+}
+
+public long createEnrollment(long studentId, long sectionId) throws SQLException {
+    final String insertSql = "INSERT INTO enrollments (student_id, section_id, status, enrolled_at, updated_at) "
+                           + "VALUES (?, ?, 'ENROLLED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)";
+
+    Connection conn = null;
+    PreparedStatement ps = null;
+    ResultSet keys = null;
+    boolean previousAutoCommit = true;
+
+    try {
+        conn = DBConnection.getErpConnection();
+
+        // ensure single-transaction for insert + component-copy
+        previousAutoCommit = conn.getAutoCommit();
+        conn.setAutoCommit(false);
+
+        ps = conn.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS);
+        ps.setLong(1, studentId);
+        ps.setLong(2, sectionId);
+        int rows = ps.executeUpdate();
+        if (rows == 0) {
+            throw new SQLException("Failed to insert enrollment, no rows affected.");
+        }
+
+        keys = ps.getGeneratedKeys();
+        if (!keys.next()) {
+            throw new SQLException("Failed to obtain generated enrollment_id.");
+        }
+        long newEnrollmentId = keys.getLong(1);
+
+        // --- IMPORTANT: Use same connection for GradeDaoImpl so all operations are in same transaction ---
+        GradeDaoImpl gradeDao = new GradeDaoImpl(conn);
+        int created = gradeDao.createComponentsForEnrollment(newEnrollmentId, sectionId);
+        // created = number of component rows inserted (depends on your impl)
+
+        // commit everything together
+        conn.commit();
+
+        return newEnrollmentId;
+    } catch (Exception ex) {
+        if (conn != null) {
+            try { conn.rollback(); } catch (SQLException rbe) { rbe.printStackTrace(); }
+        }
+        throw new SQLException("Error creating enrollment + components: " + ex.getMessage(), ex);
+    } finally {
+        try { if (keys != null) keys.close(); } catch (SQLException ignore) {}
+        try { if (ps != null) ps.close(); } catch (SQLException ignore) {}
+        if (conn != null) {
+            try {
+                conn.setAutoCommit(previousAutoCommit); // restore original auto-commit
+                conn.close();
+            } catch (SQLException ignore) {}
+        }
+    }
+}
+
+
+
     // ------------------------------------------------------------
     // updateAssessmentComponent
     // ------------------------------------------------------------

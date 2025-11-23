@@ -70,9 +70,10 @@ public Result registerForSection(String studentId, long sectionId) {
                 return Result.error("Registration deadline has passed.");
             }
 
-            boolean ok = false;
+            // NEW: createEnrollment now returns the generated enrollment_id (long)
+            long enrollmentId = -1L;
             try {
-                ok = enrollmentDao.createEnrollment(sid, sectionId);
+                enrollmentId = enrollmentDao.createEnrollment(sid, sectionId);
             } catch (Exception daoEx) {
                 // If DAO throws SQLException, try to detect FK/constraint issues and convert to friendly message
                 Throwable cause = daoEx;
@@ -91,13 +92,13 @@ public Result registerForSection(String studentId, long sectionId) {
                 throw daoEx;
             }
 
-            if (!ok) {
+            if (enrollmentId <= 0) {
                 conn.rollback();
                 return Result.error("Unexpected database error during registration.");
             }
 
             conn.commit();
-            return Result.ok(" Registered successfully!");
+            return Result.ok("Registered successfully! (enrollment id: " + enrollmentId + ")");
         } catch (Exception ex) {                       // catch Exception because DAOs can throw SQLException or other
             try { conn.rollback(); } catch (Exception ignore) {}
             // Map common SQL issues to friendly messages where possible
@@ -115,6 +116,7 @@ public Result registerForSection(String studentId, long sectionId) {
         return Result.error("Connection error: " + ex.getMessage());
     }
 }
+
  public Map<String,Object> getStudentOverview(String studentId) throws Exception {
         try (Connection conn = DBConnection.getErpConnection()) {
             StudentDao dao = new StudentDaoImpl(conn);

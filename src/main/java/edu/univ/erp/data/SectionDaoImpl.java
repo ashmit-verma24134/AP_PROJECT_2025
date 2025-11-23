@@ -8,9 +8,9 @@ import java.util.List;
  * SectionDaoImpl - concrete DAO for sections.
  * Uses an injected Connection (provided in ctor) so callers control transactions.
  *
- * Note: SQL here has been made tolerant to different DB layouts by avoiding references
- * to non-standard columns like s.cterm or s.schedule. We read the canonical columns:
- * - semester (may be varchar), term (varchar), year (int), day_time (preferred)
+ * Note: SQL here avoids references to a non-existent `term` column.
+ * We read the canonical columns:
+ * - semester (may be varchar), year (int), day_time (preferred)
  */
 public class SectionDaoImpl implements SectionDao {
     private final Connection conn;
@@ -33,8 +33,8 @@ public class SectionDaoImpl implements SectionDao {
                    (s.capacity - IFNULL((SELECT COUNT(*)
                        FROM enrollments e
                        WHERE e.section_id = s.section_id AND e.status='ENROLLED'),0)) AS seats_left,
-                   -- prefer explicit semester/term; if semester NULL use term plus year (safe concat)
-                   COALESCE(s.semester, s.term, CONCAT(IFNULL(s.term,''), ' ', IFNULL(CAST(s.year AS CHAR),''))) AS semester,
+                   -- return raw semester (may be empty string if NULL) and keep year separate
+                   COALESCE(s.semester, '') AS semester,
                    s.year,
                    s.day_time AS day_time,
                    s.room,
@@ -64,74 +64,80 @@ public class SectionDaoImpl implements SectionDao {
     }
 
     // -------------------- getSectionsByInstructor --------------------
-    @Override
-    public List<SectionRow> getSectionsByInstructor(long instructorId, String term) throws SQLException {
-        String sql = """
-            SELECT s.section_id,
-                   s.course_id,
-                   c.code,
-                   c.title,
-                   c.credits,
-                   s.instructor_id,
-                   IFNULL(i.full_name, 'TBA') AS instructor,
-                   s.capacity,
-                   (s.capacity - IFNULL((SELECT COUNT(*) FROM enrollments e WHERE e.section_id = s.section_id AND e.status='ENROLLED'),0)) AS seats_left,
-                   -- tolerant semester/term
-                   COALESCE(s.semester, s.term, CONCAT(IFNULL(s.term,''), ' ', IFNULL(CAST(s.year AS CHAR),''))) AS semester,
-                   s.year,
-                   s.day_time AS day_time,
-                   s.room,
-                   s.drop_deadline,
-                   s.created_at,
-                   s.updated_at,
-                   NULL AS section_no
-            FROM sections s
-            JOIN courses c ON s.course_id = c.course_id
-            LEFT JOIN instructors i ON s.instructor_id = i.instructor_id
-            WHERE (? IS NULL OR s.instructor_id = ?)
-              AND (? IS NULL OR CONCAT(COALESCE(s.semester, s.term, ''), ' ', COALESCE(CAST(s.year AS CHAR), '')) = ?)
-            ORDER BY s.year DESC, COALESCE(s.semester, s.term, '') DESC, c.code
-        """;
+@Override
+public List<SectionRow> getSectionsByInstructor(long instructorId, String term) throws SQLException {
 
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            // params 1,2 => instructor filter
-            if (instructorId <= 0) {
-                ps.setNull(1, Types.BIGINT);
-                ps.setNull(2, Types.BIGINT);
-            } else {
-                ps.setLong(1, instructorId);
-                ps.setLong(2, instructorId);
-            }
+    String sql = """
+        SELECT s.section_id,
+               s.course_id,
+               c.code,
+               c.title,
+               c.credits,
+               s.instructor_id,
+               IFNULL(i.full_name, 'TBA') AS instructor,
+               s.capacity,
+               (s.capacity - IFNULL((SELECT COUNT(*) 
+                    FROM enrollments e 
+                    WHERE e.section_id = s.section_id AND e.status='ENROLLED'),0)) AS seats_left,
+               COALESCE(s.semester, '') AS semester,
+               s.year,
+               s.day_time AS day_time,
+               s.room,
+               s.drop_deadline,
+               s.created_at,
+               s.updated_at,
+               NULL AS section_no
+        FROM sections s
+        JOIN courses c ON s.course_id = c.course_id
+        LEFT JOIN instructors i ON s.instructor_id = i.instructor_id
+        WHERE (? IS NULL OR s.instructor_id = ?)
+          AND (? IS NULL OR 
+               CONCAT(
+                   COALESCE(CAST(s.semester AS CHAR), ''), 
+                   ' ', 
+                   COALESCE(CAST(s.year AS CHAR), '')
+               ) = CAST(? AS CHAR)
+          )
+        ORDER BY s.year DESC, COALESCE(s.semester,'' ) DESC, c.code
+    """;
 
-            // params 3,4 => term filter (like "Spring 2025")
-            if (term == null || term.trim().isEmpty()) {
-                ps.setNull(3, Types.VARCHAR);
-                ps.setNull(4, Types.VARCHAR);
-            } else {
-                ps.setString(3, term.trim());
-                ps.setString(4, term.trim());
-            }
+    try (PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            try (ResultSet rs = ps.executeQuery()) {
-                List<SectionRow> list = new ArrayList<>();
-                while (rs.next()) {
-                    SectionRow r = mapRow(rs);
-                    r.instructorName = rs.getString("instructor");
-                    r.instructorId = rs.getLong("instructor_id");
-                    // include timestamps if present
-                    try {
-                        r.dropDeadline = rs.getDate("drop_deadline");
-                    } catch (SQLException ignored) {}
-                    try {
-                        r.createdAt = rs.getTimestamp("created_at");
-                        r.updatedAt = rs.getTimestamp("updated_at");
-                    } catch (SQLException ignored) {}
-                    list.add(r);
-                }
-                return list;
+        // Instructor filter
+        if (instructorId <= 0) {
+            ps.setNull(1, Types.BIGINT);
+            ps.setNull(2, Types.BIGINT);
+        } else {
+            ps.setLong(1, instructorId);
+            ps.setLong(2, instructorId);
+        }
+
+        // Term filter: "Spring 2025"
+        if (term == null || term.trim().isEmpty()) {
+            ps.setNull(3, Types.VARCHAR);
+            ps.setNull(4, Types.VARCHAR);
+        } else {
+            ps.setString(3, term.trim());
+            ps.setString(4, term.trim());
+        }
+
+        try (ResultSet rs = ps.executeQuery()) {
+            List<SectionRow> list = new ArrayList<>();
+            while (rs.next()) {
+                SectionRow r = mapRow(rs);
+                r.instructorName = rs.getString("instructor");
+                r.instructorId = rs.getLong("instructor_id");
+
+                try { r.dropDeadline = rs.getDate("drop_deadline"); } catch (SQLException ignored) {}
+                try { r.createdAt = rs.getTimestamp("created_at"); r.updatedAt = rs.getTimestamp("updated_at"); } catch (SQLException ignored) {}
+
+                list.add(r);
             }
+            return list;
         }
     }
+}
+
 
     // -------------------- isStudentEnrolled --------------------
     @Override
@@ -165,15 +171,81 @@ public class SectionDaoImpl implements SectionDao {
     }
 
     // -------------------- registerStudentInSection --------------------
-    @Override
-    public boolean registerStudentInSection(long studentId, long sectionId) throws SQLException {
-        String sql = "INSERT INTO enrollments (student_id, section_id, status) VALUES (?, ?, 'ENROLLED')";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setLong(1, studentId);
-            ps.setLong(2, sectionId);
-            return ps.executeUpdate() > 0;
+// SectionDaoImpl.java
+@Override
+public boolean registerStudentInSection(long studentId, long sectionId) throws SQLException {
+    // If already enrolled -> return false early
+    String alreadySql = "SELECT 1 FROM enrollments WHERE student_id = ? AND section_id = ? AND status = 'ENROLLED' LIMIT 1";
+    try (PreparedStatement pa = conn.prepareStatement(alreadySql)) {
+        pa.setLong(1, studentId);
+        pa.setLong(2, sectionId);
+        try (ResultSet rs = pa.executeQuery()) {
+            if (rs.next()) return false; // already enrolled
         }
     }
+
+    // Insert enrollment and clone components inside a transaction
+    boolean previousAutoCommit = conn.getAutoCommit();
+    try {
+        conn.setAutoCommit(false);
+
+        // 1) Insert enrollment and get generated enrollment_id
+        long newEnrollmentId;
+        String insEnroll = "INSERT INTO enrollments (student_id, section_id, status) VALUES (?, ?, 'ENROLLED')";
+        try (PreparedStatement ps = conn.prepareStatement(insEnroll, Statement.RETURN_GENERATED_KEYS)) {
+            ps.setLong(1, studentId);
+            ps.setLong(2, sectionId);
+            int cnt = ps.executeUpdate();
+            if (cnt == 0) {
+                conn.rollback();
+                return false;
+            }
+            try (ResultSet gk = ps.getGeneratedKeys()) {
+                if (gk.next()) newEnrollmentId = gk.getLong(1);
+                else {
+                    conn.rollback();
+                    return false;
+                }
+            }
+        }
+
+        // 2) Find a template enrollment in that section (any other enrolled student)
+        Long templateEnrollmentId = null;
+        String tmplSql = "SELECT enrollment_id FROM enrollments WHERE section_id = ? AND status = 'ENROLLED' AND enrollment_id <> ? LIMIT 1";
+        try (PreparedStatement pt = conn.prepareStatement(tmplSql)) {
+            // pass the just-created id to exclude it (in case of race)
+            pt.setLong(1, sectionId);
+            pt.setLong(2, newEnrollmentId);
+            try (ResultSet rs = pt.executeQuery()) {
+                if (rs.next()) templateEnrollmentId = rs.getLong("enrollment_id");
+            }
+        }
+
+        // 3) If template exists, clone grade_components from that enrollment to the new enrollment.
+        //    If no template (first student or no components yet) -> nothing to clone (okay).
+        if (templateEnrollmentId != null) {
+            String cloneSql =
+                "INSERT INTO grade_components (enrollment_id, component_name, weight, max_score, score) " +
+                "SELECT ?, gc.component_name, gc.weight, gc.max_score, NULL " +
+                "FROM grade_components gc " +
+                "WHERE gc.enrollment_id = ?";
+            try (PreparedStatement pc = conn.prepareStatement(cloneSql)) {
+                pc.setLong(1, newEnrollmentId);
+                pc.setLong(2, templateEnrollmentId);
+                pc.executeUpdate(); // could be 0 if template had no components
+            }
+        }
+
+        conn.commit();
+        return true;
+    } catch (SQLException ex) {
+        try { conn.rollback(); } catch (Exception ignore) {}
+        throw ex;
+    } finally {
+        try { conn.setAutoCommit(previousAutoCommit); } catch (Exception ignore) {}
+    }
+}
+
 
     // -------------------- isMaintenanceOn --------------------
     @Override

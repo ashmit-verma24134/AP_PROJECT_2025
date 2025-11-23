@@ -23,6 +23,11 @@ public interface GradeDao {
      */
     long createOrUpdateFinalRow(long enrollmentId, double percent, String letter) throws Exception;
 
+    int createComponentsForEnrollment(long enrollmentId, long sectionId) throws Exception;
+
+    
+
+
     /**
      * Upsert a grade row by enrollment+component (used by instructor UI).
      */

@@ -112,10 +112,10 @@ public class AdminCourseSectionPanel extends JPanel {
                 Window owner = SwingUtilities.getWindowAncestor(AdminCourseSectionPanel.this);
                 try {
                     // If you have CourseEditorDialog class in project, this will open it:
-CourseEditorDialog dlg = new CourseEditorDialog(owner, courseId, true);
-dlg.setLocationRelativeTo(owner);
-dlg.setModal(true);
-dlg.setVisible(true);
+                    CourseEditorDialog dlg = new CourseEditorDialog(owner, courseId, true);
+                    dlg.setLocationRelativeTo(owner);
+                    dlg.setModal(true);
+                    dlg.setVisible(true);
 
                 } catch (NoClassDefFoundError | Exception ex) {
                     // fallback: inform user
@@ -339,256 +339,256 @@ dlg.setVisible(true);
     }
 
     // new: delete selected course
-// new deleteCourse() - deletes sections for the course first, then deletes the course in one transaction
-private void deleteCourse() {
-    int viewRow = coursesTable.getSelectedRow();
-    if (viewRow < 0) {
-        JOptionPane.showMessageDialog(this, "Select a course to delete");
-        return;
-    }
-    int modelRow = coursesTable.convertRowIndexToModel(viewRow);
-    Object idObj = coursesModel.getValueAt(modelRow, 0);
-    final long courseId;
-    try { courseId = (idObj instanceof Number) ? ((Number) idObj).longValue() : Long.parseLong(String.valueOf(idObj)); }
-    catch (Exception ex) { JOptionPane.showMessageDialog(this, "Invalid course id"); return; }
+    // new deleteCourse() - deletes sections for the course first, then deletes the course in one transaction
+    private void deleteCourse() {
+        int viewRow = coursesTable.getSelectedRow();
+        if (viewRow < 0) {
+            JOptionPane.showMessageDialog(this, "Select a course to delete");
+            return;
+        }
+        int modelRow = coursesTable.convertRowIndexToModel(viewRow);
+        Object idObj = coursesModel.getValueAt(modelRow, 0);
+        final long courseId;
+        try { courseId = (idObj instanceof Number) ? ((Number) idObj).longValue() : Long.parseLong(String.valueOf(idObj)); }
+        catch (Exception ex) { JOptionPane.showMessageDialog(this, "Invalid course id"); return; }
 
-    int ok = JOptionPane.showConfirmDialog(this,
-            "Delete the course and ALL its sections? This will permanently remove all sections belonging to this course.",
-            "Confirm delete", JOptionPane.YES_NO_OPTION);
-    if (ok != JOptionPane.YES_OPTION) return;
+        int ok = JOptionPane.showConfirmDialog(this,
+                "Delete the course and ALL its sections? This will permanently remove all sections belonging to this course.",
+                "Confirm delete", JOptionPane.YES_NO_OPTION);
+        if (ok != JOptionPane.YES_OPTION) return;
 
-    btnCourseDelete.setEnabled(false);
-    new SwingWorker<Void, Void>() {
-        Exception err = null;
-        @Override protected Void doInBackground() {
-            Connection conn = null;
-            PreparedStatement psDelSections = null;
-            PreparedStatement psDelCourse = null;
-            try {
-                conn = DBConnection.getErpConnection();
-                conn.setAutoCommit(false); // start txn
+        btnCourseDelete.setEnabled(false);
+        new SwingWorker<Void, Void>() {
+            Exception err = null;
+            @Override protected Void doInBackground() {
+                Connection conn = null;
+                PreparedStatement psDelSections = null;
+                PreparedStatement psDelCourse = null;
+                try {
+                    conn = DBConnection.getErpConnection();
+                    conn.setAutoCommit(false); // start txn
 
-                // 1) delete sections belonging to course
-                String delSectionsSql = "DELETE FROM sections WHERE course_id = ?";
-                psDelSections = conn.prepareStatement(delSectionsSql);
-                psDelSections.setLong(1, courseId);
-                psDelSections.executeUpdate();
+                    // 1) delete sections belonging to course
+                    String delSectionsSql = "DELETE FROM sections WHERE course_id = ?";
+                    psDelSections = conn.prepareStatement(delSectionsSql);
+                    psDelSections.setLong(1, courseId);
+                    psDelSections.executeUpdate();
 
-                // 2) delete course
-                String delCourseSql = "DELETE FROM courses WHERE course_id = ?";
-                psDelCourse = conn.prepareStatement(delCourseSql);
-                psDelCourse.setLong(1, courseId);
-                int affected = psDelCourse.executeUpdate();
-                if (affected == 0) throw new SQLException("Course not found or already deleted.");
+                    // 2) delete course
+                    String delCourseSql = "DELETE FROM courses WHERE course_id = ?";
+                    psDelCourse = conn.prepareStatement(delCourseSql);
+                    psDelCourse.setLong(1, courseId);
+                    int affected = psDelCourse.executeUpdate();
+                    if (affected == 0) throw new SQLException("Course not found or already deleted.");
 
-                conn.commit();
-            } catch (Exception ex) {
-                err = ex;
-                if (conn != null) {
-                    try { conn.rollback(); } catch (Exception ignore) {}
+                    conn.commit();
+                } catch (Exception ex) {
+                    err = ex;
+                    if (conn != null) {
+                        try { conn.rollback(); } catch (Exception ignore) {}
+                    }
+                } finally {
+                    try { if (psDelSections != null) psDelSections.close(); } catch (Exception ignore) {}
+                    try { if (psDelCourse != null) psDelCourse.close(); } catch (Exception ignore) {}
+                    try { if (conn != null) conn.setAutoCommit(true); } catch (Exception ignore) {}
+                    try { if (conn != null) conn.close(); } catch (Exception ignore) {}
                 }
-            } finally {
-                try { if (psDelSections != null) psDelSections.close(); } catch (Exception ignore) {}
-                try { if (psDelCourse != null) psDelCourse.close(); } catch (Exception ignore) {}
-                try { if (conn != null) conn.setAutoCommit(true); } catch (Exception ignore) {}
-                try { if (conn != null) conn.close(); } catch (Exception ignore) {}
+                return null;
             }
-            return null;
-        }
-        @Override protected void done() {
-            btnCourseDelete.setEnabled(true);
-            if (err != null) {
-                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to delete course: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-            } else {
-                loadCourses();
-                loadSectionsAndFillCombos();
+            @Override protected void done() {
+                btnCourseDelete.setEnabled(true);
+                if (err != null) {
+                    JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to delete course: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                } else {
+                    loadCourses();
+                    loadSectionsAndFillCombos();
+                }
             }
-        }
-    }.execute();
-}
+        }.execute();
+    }
 
 
     // ------------------ Sections & combos ------------------
-// ------------------ Sections & combos (Course + Instructor filters) ------------------
-private void loadSectionsAndFillCombos() {
-    btnSectionRefresh.setEnabled(false);
-    sectionsModel.setRowCount(0);
-    cbCourses.removeAllItems();
-    cbInstructors.removeAllItems();
+    // ------------------ Sections & combos (Course + Instructor filters) ------------------
+    private void loadSectionsAndFillCombos() {
+        btnSectionRefresh.setEnabled(false);
+        sectionsModel.setRowCount(0);
+        cbCourses.removeAllItems();
+        cbInstructors.removeAllItems();
 
-    new SwingWorker<LoadDataBundle, Void>() {
-        Exception err = null;
+        new SwingWorker<LoadDataBundle, Void>() {
+            Exception err = null;
 
-        @Override protected LoadDataBundle doInBackground() {
-            LoadDataBundle bundle = new LoadDataBundle();
-            try (Connection conn = DBConnection.getErpConnection()) {
-                // courses (add <All Courses>)
-                String qCourses = "SELECT course_id, code FROM courses ORDER BY course_id";
-                try (PreparedStatement pc = conn.prepareStatement(qCourses);
-                     ResultSet rc = pc.executeQuery()) {
-                    bundle.courses.add(new CourseEntry(0L, "<All Courses>"));
-                    while (rc.next()) {
-                        long id = rc.getLong("course_id");
-                        String code = rc.getString("code");
-                        bundle.courses.add(new CourseEntry(id, code == null ? ("#" + id) : code));
+            @Override protected LoadDataBundle doInBackground() {
+                LoadDataBundle bundle = new LoadDataBundle();
+                try (Connection conn = DBConnection.getErpConnection()) {
+                    // courses (add <All Courses>)
+                    String qCourses = "SELECT course_id, code FROM courses ORDER BY course_id";
+                    try (PreparedStatement pc = conn.prepareStatement(qCourses);
+                         ResultSet rc = pc.executeQuery()) {
+                        bundle.courses.add(new CourseEntry(0L, "<All Courses>"));
+                        while (rc.next()) {
+                            long id = rc.getLong("course_id");
+                            String code = rc.getString("code");
+                            bundle.courses.add(new CourseEntry(id, code == null ? ("#" + id) : code));
+                        }
                     }
-                }
 
-                // instructors (add None/All)
-                bundle.instructors.add(new InstructorEntry(null, "<All Instructors>"));
-                String qInstr = "SELECT instructor_id, full_name FROM instructors ORDER BY instructor_id";
-                try (PreparedStatement pi = conn.prepareStatement(qInstr);
-                     ResultSet ri = pi.executeQuery()) {
-                    while (ri.next()) {
-                        long id = ri.getLong("instructor_id");
-                        String name = ri.getString("full_name");
-                        bundle.instructors.add(new InstructorEntry(id, name == null ? ("#" + id) : name));
+                    // instructors (add None/All)
+                    bundle.instructors.add(new InstructorEntry(null, "<All Instructors>"));
+                    String qInstr = "SELECT instructor_id, full_name FROM instructors ORDER BY instructor_id";
+                    try (PreparedStatement pi = conn.prepareStatement(qInstr);
+                         ResultSet ri = pi.executeQuery()) {
+                        while (ri.next()) {
+                            long id = ri.getLong("instructor_id");
+                            String name = ri.getString("full_name");
+                            bundle.instructors.add(new InstructorEntry(id, name == null ? ("#" + id) : name));
+                        }
                     }
+                } catch (Exception ex) {
+                    err = ex;
                 }
-            } catch (Exception ex) {
-                err = ex;
+                return bundle;
             }
-            return bundle;
-        }
 
-        @Override protected void done() {
-            btnSectionRefresh.setEnabled(true);
-            if (err != null) {
-                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to load sections/courses: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                return;
+            @Override protected void done() {
+                btnSectionRefresh.setEnabled(true);
+                if (err != null) {
+                    JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to load sections/courses: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                try {
+                    LoadDataBundle bundle = get();
+                    cbCourses.removeAllItems();
+                    for (CourseEntry c : bundle.courses) cbCourses.addItem(c);
+
+                    cbInstructors.removeAllItems();
+                    for (InstructorEntry i : bundle.instructors) cbInstructors.addItem(i);
+
+                    // ensure single listeners
+                    safeSetListenerOnCoursesCombo();
+                    safeSetListenerOnInstructorsCombo();
+
+                    // initial load: show all
+                    loadSections(null, null);
+
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Internal error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                }
             }
-            try {
-                LoadDataBundle bundle = get();
-                cbCourses.removeAllItems();
-                for (CourseEntry c : bundle.courses) cbCourses.addItem(c);
-
-                cbInstructors.removeAllItems();
-                for (InstructorEntry i : bundle.instructors) cbInstructors.addItem(i);
-
-                // ensure single listeners
-                safeSetListenerOnCoursesCombo();
-                safeSetListenerOnInstructorsCombo();
-
-                // initial load: show all
-                loadSections(null, null);
-
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Internal error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-            }
-        }
-    }.execute();
-}
-
-private void safeSetListenerOnCoursesCombo() {
-    for (java.awt.event.ActionListener al : cbCourses.getActionListeners()) {
-        cbCourses.removeActionListener(al);
+        }.execute();
     }
-    cbCourses.addActionListener(ev -> {
-        CourseEntry selCourse = (CourseEntry) cbCourses.getSelectedItem();
-        Long courseId = (selCourse == null || selCourse.id == 0L) ? null : selCourse.id;
 
-        InstructorEntry selInstr = (InstructorEntry) cbInstructors.getSelectedItem();
-        Long instrId = (selInstr == null || selInstr.id == null) ? null : selInstr.id;
+    private void safeSetListenerOnCoursesCombo() {
+        for (java.awt.event.ActionListener al : cbCourses.getActionListeners()) {
+            cbCourses.removeActionListener(al);
+        }
+        cbCourses.addActionListener(ev -> {
+            CourseEntry selCourse = (CourseEntry) cbCourses.getSelectedItem();
+            Long courseId = (selCourse == null || selCourse.id == 0L) ? null : selCourse.id;
 
-        loadSections(courseId, instrId);
-    });
-}
-private void safeSetListenerOnInstructorsCombo() {
-    for (java.awt.event.ActionListener al : cbInstructors.getActionListeners()) {
-        cbInstructors.removeActionListener(al);
+            InstructorEntry selInstr = (InstructorEntry) cbInstructors.getSelectedItem();
+            Long instrId = (selInstr == null || selInstr.id == null) ? null : selInstr.id;
+
+            loadSections(courseId, instrId);
+        });
     }
-    cbInstructors.addActionListener(ev -> {
-        CourseEntry selCourse = (CourseEntry) cbCourses.getSelectedItem();
-        Long courseId = (selCourse == null || selCourse.id == 0L) ? null : selCourse.id;
+    private void safeSetListenerOnInstructorsCombo() {
+        for (java.awt.event.ActionListener al : cbInstructors.getActionListeners()) {
+            cbInstructors.removeActionListener(al);
+        }
+        cbInstructors.addActionListener(ev -> {
+            CourseEntry selCourse = (CourseEntry) cbCourses.getSelectedItem();
+            Long courseId = (selCourse == null || selCourse.id == 0L) ? null : selCourse.id;
 
-        InstructorEntry selInstr = (InstructorEntry) cbInstructors.getSelectedItem();
-        Long instrId = (selInstr == null || selInstr.id == null || "<All Instructors>".equals(selInstr.name)) ? null : selInstr.id;
+            InstructorEntry selInstr = (InstructorEntry) cbInstructors.getSelectedItem();
+            Long instrId = (selInstr == null || selInstr.id == null || "<All Instructors>".equals(selInstr.name)) ? null : selInstr.id;
 
-        loadSections(courseId, instrId);
-    });
-}
+            loadSections(courseId, instrId);
+        });
+    }
 
-/**
- * Load sections, optionally filtering by courseId and/or instructorId.
- * If courseId == null -> all courses. If instrId == null -> all instructors.
- */
-private void loadSections(Long courseId, Long instrId) {
-    btnSectionRefresh.setEnabled(false);
-    sectionsModel.setRowCount(0);
+    /**
+     * Load sections, optionally filtering by courseId and/or instructorId.
+     * If courseId == null -> all courses. If instrId == null -> all instructors.
+     */
+    private void loadSections(Long courseId, Long instrId) {
+        btnSectionRefresh.setEnabled(false);
+        sectionsModel.setRowCount(0);
 
-    new SwingWorker<java.util.List<Object[]>, Void>() {
-        Exception err = null;
+        new SwingWorker<java.util.List<Object[]>, Void>() {
+            Exception err = null;
 
-        @Override protected java.util.List<Object[]> doInBackground() {
-            java.util.List<Object[]> rows = new java.util.ArrayList<>();
-            StringBuilder q = new StringBuilder(
-                "SELECT s.section_id, s.course_id, c.code AS course_code, " +
-                "s.instructor_id, i.full_name AS instructor_name, s.day_time, s.room, s.capacity, s.semester, s.year " +
-                "FROM sections s LEFT JOIN courses c ON s.course_id = c.course_id " +
-                "LEFT JOIN instructors i ON s.instructor_id = i.instructor_id "
-            );
+            @Override protected java.util.List<Object[]> doInBackground() {
+                java.util.List<Object[]> rows = new java.util.ArrayList<>();
+                StringBuilder q = new StringBuilder(
+                    "SELECT s.section_id, s.course_id, c.code AS course_code, " +
+                    "s.instructor_id, i.full_name AS instructor_name, s.day_time, s.room, s.capacity, s.semester, s.year " +
+                    "FROM sections s LEFT JOIN courses c ON s.course_id = c.course_id " +
+                    "LEFT JOIN instructors i ON s.instructor_id = i.instructor_id "
+                );
 
-            boolean whereAdded = false;
-            if (courseId != null) {
-                q.append(" WHERE s.course_id = ? ");
-                whereAdded = true;
-            }
-            if (instrId != null) {
-                q.append(whereAdded ? " AND " : " WHERE ");
-                q.append(" s.instructor_id = ? ");
-            }
-            q.append(" ORDER BY s.section_id");
-
-            try (Connection conn = DBConnection.getErpConnection();
-                 PreparedStatement ps = conn.prepareStatement(q.toString())) {
-                int idx = 1;
-                if (courseId != null) ps.setLong(idx++, courseId);
-                if (instrId != null) ps.setLong(idx++, instrId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        Object sectionId = rs.getObject("section_id");
-                        Object cId = rs.getObject("course_id");
-                        Object courseCode = rs.getObject("course_code");
-                        Object instrIdObj = rs.getObject("instructor_id");
-                        Object instrName = rs.getObject("instructor_name");
-                        Object dayTime = rs.getObject("day_time");
-                        Object room = rs.getObject("room");
-                        Object cap = rs.getObject("capacity");
-                        Object sem = rs.getObject("semester");
-                        Object year = rs.getObject("year");
-                        rows.add(new Object[]{ sectionId, cId, courseCode, instrIdObj, instrName, dayTime, room, cap, sem, year });
-                    }
+                boolean whereAdded = false;
+                if (courseId != null) {
+                    q.append(" WHERE s.course_id = ? ");
+                    whereAdded = true;
                 }
-            } catch (Exception ex) {
-                err = ex;
-            }
-            return rows;
-        }
+                if (instrId != null) {
+                    q.append(whereAdded ? " AND " : " WHERE ");
+                    q.append(" s.instructor_id = ? ");
+                }
+                q.append(" ORDER BY s.section_id");
 
-        @Override protected void done() {
-            btnSectionRefresh.setEnabled(true);
-            if (err != null) {
-                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to load sections: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                return;
+                try (Connection conn = DBConnection.getErpConnection();
+                     PreparedStatement ps = conn.prepareStatement(q.toString())) {
+                    int idx = 1;
+                    if (courseId != null) ps.setLong(idx++, courseId);
+                    if (instrId != null) ps.setLong(idx++, instrId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            Object sectionId = rs.getObject("section_id");
+                            Object cId = rs.getObject("course_id");
+                            Object courseCode = rs.getObject("course_code");
+                            Object instrIdObj = rs.getObject("instructor_id");
+                            Object instrName = rs.getObject("instructor_name");
+                            Object dayTime = rs.getObject("day_time");
+                            Object room = rs.getObject("room");
+                            Object cap = rs.getObject("capacity");
+                            Object sem = rs.getObject("semester");
+                            Object year = rs.getObject("year");
+                            rows.add(new Object[]{ sectionId, cId, courseCode, instrIdObj, instrName, dayTime, room, cap, sem, year });
+                        }
+                    }
+                } catch (Exception ex) {
+                    err = ex;
+                }
+                return rows;
             }
-            try {
-                java.util.List<Object[]> rows = get();
-                SwingUtilities.invokeLater(() -> {
-                    sectionsModel.setRowCount(0);
-                    for (Object[] r : rows) sectionsModel.addRow(r);
-                });
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Internal error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-            }
-        }
-    }.execute();
-}
 
-// small holder for data transferred from background worker
-private static class LoadDataBundle {
-    final java.util.List<CourseEntry> courses = new java.util.ArrayList<>();
-    final java.util.List<InstructorEntry> instructors = new java.util.ArrayList<>();
-}
+            @Override protected void done() {
+                btnSectionRefresh.setEnabled(true);
+                if (err != null) {
+                    JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to load sections: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                try {
+                    java.util.List<Object[]> rows = get();
+                    SwingUtilities.invokeLater(() -> {
+                        sectionsModel.setRowCount(0);
+                        for (Object[] r : rows) sectionsModel.addRow(r);
+                    });
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Internal error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
+    // small holder for data transferred from background worker
+    private static class LoadDataBundle {
+        final java.util.List<CourseEntry> courses = new java.util.ArrayList<>();
+        final java.util.List<InstructorEntry> instructors = new java.util.ArrayList<>();
+    }
     private void addSection() {
         final CourseEntry selectedCourse = (CourseEntry) cbCourses.getSelectedItem();
         final InstructorEntry selectedInstructor = (InstructorEntry) cbInstructors.getSelectedItem();

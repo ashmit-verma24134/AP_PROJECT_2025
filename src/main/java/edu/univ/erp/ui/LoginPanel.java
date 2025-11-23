@@ -2,13 +2,8 @@ package edu.univ.erp.ui;
 
 import edu.univ.erp.service.AuthService;
 import edu.univ.erp.util.DBConnection;
-import edu.univ.erp.data.*;
 
 import javax.imageio.ImageIO;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -16,14 +11,11 @@ import java.awt.event.ActionEvent;
 import java.io.InputStream;
 import java.sql.Connection;
 
+/**
+ * LoginPanel — cleaned, uses AuthService, displays lock/failed info, resolves instructor/student context.
+ * Keep behavior consistent: role mapping: Admin=1, Instructor=2, Student=3
+ */
 public class LoginPanel extends JPanel {
-    // brand colors (kept for local use)
-    private static final Color PRIMARY_TEAL = new Color(47, 182, 173);   // #2FB6AD
-    private static final Color DARK_GRAY = new Color(59, 59, 59);       // #3B3B3B
-    private static final Color MID_GRAY = new Color(120, 130, 140);     // #78828C
-    private static final Color SOFT_BG = new Color(245, 247, 250);      // #F5F7FA
-    private static final Color BORDER_GRAY = new Color(220, 220, 220);
-
     private final MainFrame main;
     private JTextField usernameField;
     private JPasswordField passwordField;
@@ -35,7 +27,7 @@ public class LoginPanel extends JPanel {
     public LoginPanel(MainFrame main) {
         this.main = main;
         setLayout(new GridBagLayout());
-        setBackground(SOFT_BG);
+        setBackground(Theme.BACKGROUND);
 
         JPanel card = createCard();
         add(card);
@@ -47,11 +39,10 @@ public class LoginPanel extends JPanel {
         card.setPreferredSize(new Dimension(480, 580));
         card.setBackground(Color.WHITE);
         card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(BORDER_GRAY),
+                BorderFactory.createLineBorder(Theme.CARD_BORDER),
                 new EmptyBorder(28, 30, 28, 30)
         ));
 
-        // logo (loads resources/iiitd_logo.png)
         JLabel logo = new JLabel();
         logo.setAlignmentX(Component.CENTER_ALIGNMENT);
         try (InputStream in = getClass().getResourceAsStream("/iiitd_logo.png")) {
@@ -61,11 +52,11 @@ public class LoginPanel extends JPanel {
             } else {
                 logo.setText("IIITD");
                 logo.setFont(logo.getFont().deriveFont(Font.BOLD, 22f));
-                logo.setForeground(PRIMARY_TEAL);
+                logo.setForeground(Theme.PRIMARY);
             }
         } catch (Exception e) {
             logo.setText("IIITD");
-            logo.setForeground(PRIMARY_TEAL);
+            logo.setForeground(Theme.PRIMARY);
         }
         card.add(logo);
         card.add(Box.createRigidArea(new Dimension(0, 14)));
@@ -73,13 +64,13 @@ public class LoginPanel extends JPanel {
         JLabel title = new JLabel("Welcome Back");
         title.setAlignmentX(Component.CENTER_ALIGNMENT);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 20f));
-        title.setForeground(DARK_GRAY);
+        title.setForeground(Theme.NEUTRAL_DARK);
         card.add(title);
 
         JLabel subtitle = new JLabel("Sign in to your IIITD account");
         subtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
         subtitle.setFont(subtitle.getFont().deriveFont(12f));
-        subtitle.setForeground(MID_GRAY);
+        subtitle.setForeground(Theme.NEUTRAL_DARK);
         card.add(subtitle);
 
         card.add(Box.createRigidArea(new Dimension(0, 18)));
@@ -101,7 +92,7 @@ public class LoginPanel extends JPanel {
         signInBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
         signInBtn.setPreferredSize(new Dimension(400, 46));
         signInBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
-        signInBtn.setBackground(PRIMARY_TEAL);
+        signInBtn.setBackground(Theme.PRIMARY);
         signInBtn.setForeground(Color.WHITE);
         signInBtn.setFocusPainted(false);
         signInBtn.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
@@ -113,7 +104,7 @@ public class LoginPanel extends JPanel {
         form.add(Box.createRigidArea(new Dimension(0, 12)));
 
         JLabel rlbl = new JLabel("Role-based Access");
-        rlbl.setForeground(MID_GRAY);
+        rlbl.setForeground(Theme.NEUTRAL_DARK);
         rlbl.setAlignmentX(Component.CENTER_ALIGNMENT);
         form.add(rlbl);
         form.add(Box.createRigidArea(new Dimension(0, 8)));
@@ -142,7 +133,7 @@ public class LoginPanel extends JPanel {
         createAccBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
         createAccBtn.setBorderPainted(false);
         createAccBtn.setContentAreaFilled(false);
-        createAccBtn.setForeground(MID_GRAY);
+        createAccBtn.setForeground(Theme.NEUTRAL_DARK);
         createAccBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         createAccBtn.addActionListener(e -> main.showCard("signup"));
         form.add(Box.createRigidArea(new Dimension(0, 8)));
@@ -151,7 +142,7 @@ public class LoginPanel extends JPanel {
         JLabel footer = new JLabel("© IIITD. Need help? Contact IT Support");
         footer.setAlignmentX(Component.CENTER_ALIGNMENT);
         footer.setFont(footer.getFont().deriveFont(11f));
-        footer.setForeground(MID_GRAY);
+        footer.setForeground(Theme.NEUTRAL_DARK);
         card.add(footer);
 
         adminBtn.addActionListener(e -> selectedRole = 1);
@@ -162,34 +153,11 @@ public class LoginPanel extends JPanel {
         return card;
     }
 
-    private JTextField createField(String tooltip) {
-        JTextField f = new JTextField();
-        f.setPreferredSize(new Dimension(400, 44));
-        f.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-        f.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(BORDER_GRAY),
-                BorderFactory.createEmptyBorder(8, 10, 8, 10)
-        ));
-        f.setToolTipText(tooltip);
-        return f;
-    }
-
-    private JToggleButton createChip(String text) {
-        JToggleButton b = new JToggleButton(text);
-        b.setBackground(new Color(250, 250, 250));
-        b.setBorder(BorderFactory.createLineBorder(BORDER_GRAY));
-        b.setFocusPainted(false);
-        b.setPreferredSize(new Dimension(120, 40));
-        b.setForeground(DARK_GRAY);
-        return b;
-    }
-
-    // fixed placeholder field to match new Theme names
     private JTextField createPlaceholderField(String placeholder, boolean isPassword) {
         JTextField field;
         if (isPassword) {
             field = new JPasswordField();
-            ((JPasswordField) field).setEchoChar('•');
+            ((JPasswordField) field).setEchoChar((char)0);
         } else {
             field = new JTextField();
         }
@@ -197,11 +165,11 @@ public class LoginPanel extends JPanel {
         field.setPreferredSize(new Dimension(400, 44));
         field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
         field.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Theme.CARD_BORDER),   // ✅ fixed
-                BorderFactory.createEmptyBorder(8, 10, 8, 10)
+                BorderFactory.createLineBorder(Theme.CARD_BORDER),
+                new EmptyBorder(8, 10, 8, 10)
         ));
-        field.setForeground(Theme.NEUTRAL_DARK); // ✅ fixed
-        field.setFont(Theme.BODY_FONT); // stays same
+        field.setForeground(Theme.NEUTRAL_DARK);
+        field.setFont(Theme.BODY_FONT);
 
         field.setText(placeholder);
         field.setForeground(new Color(180, 180, 180));
@@ -211,11 +179,10 @@ public class LoginPanel extends JPanel {
             public void focusGained(java.awt.event.FocusEvent e) {
                 if (field.getText().equals(placeholder)) {
                     field.setText("");
-                    field.setForeground(Theme.NEUTRAL_DARK); // ✅ fixed
+                    field.setForeground(Theme.NEUTRAL_DARK);
                     if (isPassword) ((JPasswordField) field).setEchoChar('•');
                 }
             }
-
             @Override
             public void focusLost(java.awt.event.FocusEvent e) {
                 if (field.getText().isEmpty()) {
@@ -226,11 +193,19 @@ public class LoginPanel extends JPanel {
             }
         });
 
-        if (isPassword) {
-            ((JPasswordField) field).setEchoChar((char) 0);
-        }
+        if (isPassword) ((JPasswordField) field).setEchoChar((char) 0);
 
         return field;
+    }
+
+    private JToggleButton createChip(String text) {
+        JToggleButton b = new JToggleButton(text);
+        b.setBackground(new Color(250, 250, 250));
+        b.setBorder(BorderFactory.createLineBorder(Theme.CARD_BORDER));
+        b.setFocusPainted(false);
+        b.setPreferredSize(new Dimension(120, 40));
+        b.setForeground(Theme.NEUTRAL_DARK);
+        return b;
     }
 
     private void onSignIn(ActionEvent ev) {
@@ -253,109 +228,58 @@ public class LoginPanel extends JPanel {
                 try {
                     int result = get();
                     setBusy(false, " ");
+                    // on failure, show helpful lock/failed info
                     if (result == -1) {
-                        statusLabel.setText("Login failed — check credentials or role.");
-                    } else {
-                        if (result == 1) {
-    // Admin login - pass username
-    try {
-        main.getAdminPanel().setAdminUsername(username);
-    } catch (Exception ex) {
-        ex.printStackTrace();
-    }
-    main.showCard("admin");
-}
-                      else if (result == 2) {
-    // Instructor login – resolve instructor id then set context so MyCoursesPanel loads
-    long instructorId = 0L;
-
-    try {
-        // 1) Optional helper via AuthService if present
-        try {
-            java.lang.reflect.Method m = AuthService.class.getMethod("getInstructorIdByUsername", String.class);
-            Object val = m.invoke(null, username);
-            if (val != null) {
-                if (val instanceof Number) instructorId = ((Number) val).longValue();
-                else instructorId = Long.parseLong(String.valueOf(val));
-            }
-        } catch (NoSuchMethodException ignored) {}
-
-        try (Connection conn = DBConnection.getErpConnection()) {
-            // 2) Try instructors.username (you already added this column)
-            if (instructorId == 0L) {
-                try (java.sql.PreparedStatement ps0 = conn.prepareStatement(
-                        "SELECT instructor_id FROM instructors WHERE username = ? LIMIT 1")) {
-                    ps0.setString(1, username);
-                    try (java.sql.ResultSet rs0 = ps0.executeQuery()) {
-                        if (rs0.next()) instructorId = rs0.getLong("instructor_id");
+                        String info = AuthService.getLockInfo(username);
+                        if (info != null) statusLabel.setText(info);
+                        else statusLabel.setText("Login failed — check credentials or role.");
+                        return;
                     }
-                }
-            }
 
-            // 3) Try mapping users.email -> users.id -> instructors.instructor_id
-            if (instructorId == 0L) {
-                try (java.sql.PreparedStatement pus = conn.prepareStatement(
-                        "SELECT id FROM users WHERE email = ? LIMIT 1")) {
-                    pus.setString(1, username);
-                    try (java.sql.ResultSet rus = pus.executeQuery()) {
-                        if (rus.next()) {
-                            long userId = rus.getLong("id");
-                            try (java.sql.PreparedStatement pis = conn.prepareStatement(
-                                    "SELECT instructor_id FROM instructors WHERE instructor_id = ? LIMIT 1")) {
-                                pis.setLong(1, userId);
-                                try (java.sql.ResultSet ris = pis.executeQuery()) {
-                                    if (ris.next()) instructorId = ris.getLong("instructor_id");
-                                }
-                            }
+                    // success -> route
+                    if (result == 1) {
+                        main.showCard("admin");
+                        return;
+                    }
+
+                    if (result == 2) {
+                        // instructor: resolve instructor id and set context
+                        long instructorId = 0L;
+                        try {
+                            Long id = AuthService.getInstructorIdByUsername(username);
+                            if (id != null) instructorId = id;
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
                         }
-                    }
-                }
-            }
-
-            // 4) Last resort: full_name LIKE match
-            if (instructorId == 0L) {
-                try (java.sql.PreparedStatement ps1 = conn.prepareStatement(
-                        "SELECT instructor_id FROM instructors WHERE full_name LIKE ? LIMIT 1")) {
-                    ps1.setString(1, "%" + username + "%");
-                    try (java.sql.ResultSet rs1 = ps1.executeQuery()) {
-                        if (rs1.next()) instructorId = rs1.getLong("instructor_id");
-                    }
-                }
-            }
-        }
-    } catch (Exception ex) {
-        ex.printStackTrace();
-    }
-
-    System.out.println("DEBUG: Resolved instructorId=" + instructorId + " for username=" + username);
-
-    if (instructorId > 0) {
-        try { 
-            // Pass username to setInstructorContext (3 parameter version)
-            main.getInstructorPanel().setInstructorContext(instructorId, null, username); 
-        } catch (Exception ex) { 
-            ex.printStackTrace(); 
-        }
-    } else {
-        System.out.println("Warning: instructor id not found for username=" + username);
-    }
-
-    main.showCard("instructor");
-}
-
-
-else if (result == 3) {
-                            String sid = AuthService.getStudentIdByUsername(username);
-                            if (sid == null) {
-                                statusLabel.setText("Student record not found for this username/roll.");
-                            } else {
-                                main.setCurrentStudentId(sid);
+                        if (instructorId > 0) {
+                            // Use 3-arg overload if available
+                            try {
+                                main.getInstructorPanel().setInstructorContext(instructorId, null, username);
+                            } catch (NoSuchMethodError | AbstractMethodError ignored) {
+                                // fallback to 2-arg if older
+                                main.getInstructorPanel().setInstructorContext(instructorId, null);
                             }
+                        } else {
+                            System.out.println("Warning: instructor id not found for username=" + username);
                         }
+                        main.showCard("instructor");
+                        return;
                     }
+
+                    if (result == 3) {
+                        String sid = AuthService.getStudentIdByUsername(username);
+                        if (sid == null) {
+                            statusLabel.setText("Student record not found for this username/roll.");
+                        } else {
+                            main.setCurrentStudentId(sid);
+                            main.showCard("student");
+                        }
+                        return;
+                    }
+
                 } catch (Exception ex) {
-                    setBusy(false, " ");
                     ex.printStackTrace();
+                    setBusy(false, " ");
                     statusLabel.setText("An error occurred. See console.");
                 }
             }

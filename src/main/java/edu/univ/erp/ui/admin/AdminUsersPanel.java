@@ -306,258 +306,258 @@ public class AdminUsersPanel extends JPanel {
     }
 
     // --------------------------- add user ---------------------------
-// --------------------------- add user (REPLACEMENT) ---------------------------
-// --------------------------- add user (FULL REPLACEMENT) ---------------------------
-private void onAddUser() {
-    final String username = txtUsername.getText().trim();
-    final String password = new String(txtPassword.getPassword());
-    final String role = ((String) cbRole.getSelectedItem()).trim().toUpperCase();
-    final String first = txtFirst.getText().trim();
-    final String last = txtLast.getText().trim();
-    final String email = txtEmail.getText().trim();
-    final String phone = txtPhone.getText().trim();
+    // --------------------------- add user (REPLACEMENT) ---------------------------
+    // --------------------------- add user (FULL REPLACEMENT) ---------------------------
+    private void onAddUser() {
+        final String username = txtUsername.getText().trim();
+        final String password = new String(txtPassword.getPassword());
+        final String role = ((String) cbRole.getSelectedItem()).trim().toUpperCase();
+        final String first = txtFirst.getText().trim();
+        final String last = txtLast.getText().trim();
+        final String email = txtEmail.getText().trim();
+        final String phone = txtPhone.getText().trim();
 
-    if (username.isEmpty()) { JOptionPane.showMessageDialog(this, "Username required"); return; }
-    if (password.isEmpty()) { JOptionPane.showMessageDialog(this, "Password required"); return; }
+        if (username.isEmpty()) { JOptionPane.showMessageDialog(this, "Username required"); return; }
+        if (password.isEmpty()) { JOptionPane.showMessageDialog(this, "Password required"); return; }
 
-    btnAdd.setEnabled(false);
+        btnAdd.setEnabled(false);
 
-    new SwingWorker<Void, Void>() {
-        Exception err = null;
-        @Override protected Void doInBackground() {
-            long createdAuthUserId = -1L;
-            try {
-                AuthSchema sLocal = (schema == null) ? detectAuthSchema() : schema;
+        new SwingWorker<Void, Void>() {
+            Exception err = null;
+            @Override protected Void doInBackground() {
+                long createdAuthUserId = -1L;
+                try {
+                    AuthSchema sLocal = (schema == null) ? detectAuthSchema() : schema;
 
-                // 1) check duplicate
-                String checkSql = "SELECT " + sLocal.idCol + " FROM users WHERE " + sLocal.usernameCol + " = ?";
-                try (Connection conn = DBConnection.getAuthConnection();
-                     PreparedStatement chk = conn.prepareStatement(checkSql)) {
-                    chk.setString(1, username);
-                    try (ResultSet rs = chk.executeQuery()) {
-                        if (rs.next()) throw new Exception("Username already exists");
-                    }
-                }
-
-                // Build insert statement parts
-                String hashed = BCrypt.hashpw(password, BCrypt.gensalt(12));
-                AuthSchema local = sLocal;
-
-                java.util.List<String> cols = new java.util.ArrayList<>();
-                java.util.List<String> placeholders = new java.util.ArrayList<>();
-                java.util.List<Object> params = new java.util.ArrayList<>();
-
-                cols.add(local.usernameCol);
-                placeholders.add("?");
-                params.add(username);
-
-                // detect pass column name
-                String passColName = local.passCol;
-                if (passColName == null) {
-                    String[] pref = new String[] {"pass_hash", "password_hash", "password", "passhash"};
-                    for (String p : pref) {
-                        for (String actual : local.allCols) {
-                            if (actual.equalsIgnoreCase(p)) { passColName = actual; break; }
+                    // 1) check duplicate
+                    String checkSql = "SELECT " + sLocal.idCol + " FROM users WHERE " + sLocal.usernameCol + " = ?";
+                    try (Connection conn = DBConnection.getAuthConnection();
+                         PreparedStatement chk = conn.prepareStatement(checkSql)) {
+                        chk.setString(1, username);
+                        try (ResultSet rs = chk.executeQuery()) {
+                            if (rs.next()) throw new Exception("Username already exists");
                         }
-                        if (passColName != null) break;
                     }
-                }
-                if (passColName == null) passColName = "password";
 
-                cols.add(passColName);
-                placeholders.add("?");
-                params.add(hashed);
+                    // Build insert statement parts
+                    String hashed = BCrypt.hashpw(password, BCrypt.gensalt(12));
+                    AuthSchema local = sLocal;
 
-                if (local.hasRoleId) {
-                    cols.add("role_id");
+                    java.util.List<String> cols = new java.util.ArrayList<>();
+                    java.util.List<String> placeholders = new java.util.ArrayList<>();
+                    java.util.List<Object> params = new java.util.ArrayList<>();
+
+                    cols.add(local.usernameCol);
                     placeholders.add("?");
-                    int roleId = 3;
-                    if ("ADMIN".equalsIgnoreCase(role)) roleId = 1;
-                    else if ("INSTRUCTOR".equalsIgnoreCase(role)) roleId = 2;
-                    params.add(roleId);
-                } else {
-                    cols.add(local.roleCol != null ? local.roleCol : "role");
-                    placeholders.add("?");
-                    params.add(role);
-                }
+                    params.add(username);
 
-                if (local.hasFirst) { cols.add("first_name"); placeholders.add("?"); params.add(first.isEmpty()? null : first); }
-                if (local.hasLast)  { cols.add("last_name");  placeholders.add("?"); params.add(last.isEmpty()? null : last); }
-                if (local.hasPhone) { cols.add("phone");      placeholders.add("?"); params.add(phone.isEmpty()? null : phone); }
-                if (local.hasEmail) { cols.add("email");      placeholders.add("?"); params.add(email.isEmpty()? null : email); }
-                if (local.hasActive) { cols.add("active"); placeholders.add("?"); params.add(1); }
-
-                // Ensure NOT NULL columns are provided (ignore user_id requirement)
-                try (Connection conn = DBConnection.getAuthConnection()) {
-                    DatabaseMetaData md = conn.getMetaData();
-                    try (ResultSet rs = md.getColumns(conn.getCatalog(), null, "users", null)) {
-                        Set<String> notNullNoDefault = new HashSet<>();
-                        while (rs.next()) {
-                            String col = rs.getString("COLUMN_NAME");
-                            String isNull = rs.getString("IS_NULLABLE");
-                            String def = rs.getString("COLUMN_DEF");
-                            if ("NO".equalsIgnoreCase(isNull) && def == null) {
-                                notNullNoDefault.add(col.toLowerCase());
+                    // detect pass column name
+                    String passColName = local.passCol;
+                    if (passColName == null) {
+                        String[] pref = new String[] {"pass_hash", "password_hash", "password", "passhash"};
+                        for (String p : pref) {
+                            for (String actual : local.allCols) {
+                                if (actual.equalsIgnoreCase(p)) { passColName = actual; break; }
                             }
+                            if (passColName != null) break;
                         }
-                        if (notNullNoDefault.contains("user_id")) notNullNoDefault.remove("user_id");
+                    }
+                    if (passColName == null) passColName = "password";
 
-                        // make sure a pass-like col is included
-                        for (String must : new String[] {"pass_hash", "password_hash", "password"}) {
-                            if (notNullNoDefault.contains(must.toLowerCase())) {
-                                boolean present = false;
-                                for (String c : cols) if (c.equalsIgnoreCase(must)) present = true;
-                                if (!present) {
-                                    cols.add(must);
-                                    placeholders.add("?");
-                                    params.add(hashed);
+                    cols.add(passColName);
+                    placeholders.add("?");
+                    params.add(hashed);
+
+                    if (local.hasRoleId) {
+                        cols.add("role_id");
+                        placeholders.add("?");
+                        int roleId = 3;
+                        if ("ADMIN".equalsIgnoreCase(role)) roleId = 1;
+                        else if ("INSTRUCTOR".equalsIgnoreCase(role)) roleId = 2;
+                        params.add(roleId);
+                    } else {
+                        cols.add(local.roleCol != null ? local.roleCol : "role");
+                        placeholders.add("?");
+                        params.add(role);
+                    }
+
+                    if (local.hasFirst) { cols.add("first_name"); placeholders.add("?"); params.add(first.isEmpty()? null : first); }
+                    if (local.hasLast)  { cols.add("last_name");  placeholders.add("?"); params.add(last.isEmpty()? null : last); }
+                    if (local.hasPhone) { cols.add("phone");      placeholders.add("?"); params.add(phone.isEmpty()? null : phone); }
+                    if (local.hasEmail) { cols.add("email");      placeholders.add("?"); params.add(email.isEmpty()? null : email); }
+                    if (local.hasActive) { cols.add("active"); placeholders.add("?"); params.add(1); }
+
+                    // Ensure NOT NULL columns are provided (ignore user_id requirement)
+                    try (Connection conn = DBConnection.getAuthConnection()) {
+                        DatabaseMetaData md = conn.getMetaData();
+                        try (ResultSet rs = md.getColumns(conn.getCatalog(), null, "users", null)) {
+                            Set<String> notNullNoDefault = new HashSet<>();
+                            while (rs.next()) {
+                                String col = rs.getString("COLUMN_NAME");
+                                String isNull = rs.getString("IS_NULLABLE");
+                                String def = rs.getString("COLUMN_DEF");
+                                if ("NO".equalsIgnoreCase(isNull) && def == null) {
+                                    notNullNoDefault.add(col.toLowerCase());
                                 }
                             }
-                        }
+                            if (notNullNoDefault.contains("user_id")) notNullNoDefault.remove("user_id");
 
-                        for (String req : notNullNoDefault) {
-                            boolean present = false;
-                            for (String c : cols) if (c.equalsIgnoreCase(req)) present = true;
-                            if (!present) {
-                                throw new SQLException("Cannot create user: table requires non-null column '" + req + "' that panel cannot populate. Add default in DB or update panel.");
-                            }
-                        }
-                    }
-                }
-
-                // Build final SQL
-                String insertSql = "INSERT INTO users (" + String.join(", ", cols) + ") VALUES (" + String.join(", ", placeholders) + ")";
-                System.out.println("[AdminUsersPanel] Insert SQL: " + insertSql + " params=" + params);
-
-                // Insert into auth DB and try to obtain generated user id
-                try (Connection conn = DBConnection.getAuthConnection();
-                     PreparedStatement ps = conn.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS)) {
-
-                    for (int i = 0; i < params.size(); ++i) {
-                        Object p = params.get(i);
-                        int idx = i + 1;
-                        if (p == null) {
-                            ps.setNull(idx, Types.VARCHAR);
-                        } else if (p instanceof Integer) {
-                            ps.setInt(idx, (Integer)p);
-                        } else if (p instanceof Long) {
-                            ps.setLong(idx, (Long)p);
-                        } else {
-                            ps.setString(idx, String.valueOf(p));
-                        }
-                    }
-                    ps.executeUpdate();
-                    try (ResultSet gk = ps.getGeneratedKeys()) {
-                        if (gk != null && gk.next()) {
-                            try { createdAuthUserId = gk.getLong(1); } catch (Exception ignore) {}
-                        }
-                    }
-                }
-
-                // fallback: if DB didn't return generated keys, lookup by username
-                if (createdAuthUserId <= 0) {
-                    try (Connection conn = DBConnection.getAuthConnection();
-                         PreparedStatement p = conn.prepareStatement("SELECT " + local.idCol + " FROM users WHERE " + local.usernameCol + " = ? LIMIT 1")) {
-                        p.setString(1, username);
-                        try (ResultSet r = p.executeQuery()) {
-                            if (r.next()) createdAuthUserId = r.getLong(1);
-                        }
-                    }
-                }
-
-                // --- If role is INSTRUCTOR, create a row in erp_db.instructors using the auth user id (required by FK) ---
-                if ("INSTRUCTOR".equalsIgnoreCase(role)) {
-                    if (createdAuthUserId <= 0) {
-                        // cannot link instructor without user id
-                        err = new Exception("User added, but failed to add instructor row: could not determine user id");
-                    } else {
-                        String fullName = (first + " " + last).trim();
-                        if (fullName.isEmpty()) fullName = username;
-
-                        try (Connection erpConn = DBConnection.getErpConnection()) {
-                            // check whether an instructor with this instructor_id already exists
-                            try (PreparedStatement check = erpConn.prepareStatement("SELECT instructor_id FROM instructors WHERE instructor_id = ? LIMIT 1")) {
-                                check.setLong(1, createdAuthUserId);
-                                try (ResultSet r = check.executeQuery()) {
-                                    if (r.next()) {
-                                        // already present — nothing to do
-                                        System.out.println("[AdminUsersPanel] Instructor row already exists for user_id=" + createdAuthUserId);
-                                    } else {
-                                        // insert instructor with instructor_id = auth user id (required by FK)
-                                        try (PreparedStatement ins = erpConn.prepareStatement(
-                                                "INSERT INTO instructors (instructor_id, full_name, department, created_at, updated_at) VALUES (?, ?, NULL, NOW(), NOW())")) {
-                                            ins.setLong(1, createdAuthUserId);
-                                            ins.setString(2, fullName);
-                                            ins.executeUpdate();
-                                            System.out.println("[AdminUsersPanel] Created instructors row for user_id=" + createdAuthUserId);
-                                        }
+                            // make sure a pass-like col is included
+                            for (String must : new String[] {"pass_hash", "password_hash", "password"}) {
+                                if (notNullNoDefault.contains(must.toLowerCase())) {
+                                    boolean present = false;
+                                    for (String c : cols) if (c.equalsIgnoreCase(must)) present = true;
+                                    if (!present) {
+                                        cols.add(must);
+                                        placeholders.add("?");
+                                        params.add(hashed);
                                     }
                                 }
                             }
-                        } catch (Exception ex) {
-                            System.err.println("[AdminUsersPanel] Warning: failed to create instructor row: " + ex.getMessage());
-                            err = new Exception("User added, but failed to add instructor row: " + ex.getMessage(), ex);
+
+                            for (String req : notNullNoDefault) {
+                                boolean present = false;
+                                for (String c : cols) if (c.equalsIgnoreCase(req)) present = true;
+                                if (!present) {
+                                    throw new SQLException("Cannot create user: table requires non-null column '" + req + "' that panel cannot populate. Add default in DB or update panel.");
+                                }
+                            }
                         }
                     }
-                }
 
-                // --- If role is STUDENT, keep existing behavior: create a students row in erp_db (if table exists) ---
-                if ("STUDENT".equalsIgnoreCase(role)) {
-                    try (Connection erp = DBConnection.getErpConnection()) {
-                        DatabaseMetaData md = erp.getMetaData();
-                        boolean hasUserId = false;
-                        try (ResultSet rs = md.getColumns(erp.getCatalog(), null, "students", "user_id")) {
-                            hasUserId = rs.next();
-                        }
-                        String rollNo = username;
-                        String fullName = (first + " " + last).trim();
-                        if (fullName.isEmpty()) fullName = "Auto " + username;
-                        if (hasUserId && createdAuthUserId > 0) {
-                            String ins = "INSERT INTO students (roll_no, full_name, program, year, created_at, updated_at, user_id, department) " +
-                                    "VALUES (?, ?, 'Unknown', 1, NOW(), NOW(), ?, 'IIIT-Delhi')";
-                            try (PreparedStatement ps2 = erp.prepareStatement(ins)) {
-                                ps2.setString(1, rollNo);
-                                ps2.setString(2, fullName);
-                                ps2.setLong(3, createdAuthUserId);
-                                ps2.executeUpdate();
+                    // Build final SQL
+                    String insertSql = "INSERT INTO users (" + String.join(", ", cols) + ") VALUES (" + String.join(", ", placeholders) + ")";
+                    System.out.println("[AdminUsersPanel] Insert SQL: " + insertSql + " params=" + params);
+
+                    // Insert into auth DB and try to obtain generated user id
+                    try (Connection conn = DBConnection.getAuthConnection();
+                         PreparedStatement ps = conn.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS)) {
+
+                        for (int i = 0; i < params.size(); ++i) {
+                            Object p = params.get(i);
+                            int idx = i + 1;
+                            if (p == null) {
+                                ps.setNull(idx, Types.VARCHAR);
+                            } else if (p instanceof Integer) {
+                                ps.setInt(idx, (Integer)p);
+                            } else if (p instanceof Long) {
+                                ps.setLong(idx, (Long)p);
+                            } else {
+                                ps.setString(idx, String.valueOf(p));
                             }
+                        }
+                        ps.executeUpdate();
+                        try (ResultSet gk = ps.getGeneratedKeys()) {
+                            if (gk != null && gk.next()) {
+                                try { createdAuthUserId = gk.getLong(1); } catch (Exception ignore) {}
+                            }
+                        }
+                    }
+
+                    // fallback: if DB didn't return generated keys, lookup by username
+                    if (createdAuthUserId <= 0) {
+                        try (Connection conn = DBConnection.getAuthConnection();
+                             PreparedStatement p = conn.prepareStatement("SELECT " + local.idCol + " FROM users WHERE " + local.usernameCol + " = ? LIMIT 1")) {
+                            p.setString(1, username);
+                            try (ResultSet r = p.executeQuery()) {
+                                if (r.next()) createdAuthUserId = r.getLong(1);
+                            }
+                        }
+                    }
+
+                    // --- If role is INSTRUCTOR, create a row in erp_db.instructors using the auth user id (required by FK) ---
+                    if ("INSTRUCTOR".equalsIgnoreCase(role)) {
+                        if (createdAuthUserId <= 0) {
+                            // cannot link instructor without user id
+                            err = new Exception("User added, but failed to add instructor row: could not determine user id");
                         } else {
-                            String ins = "INSERT INTO students (roll_no, full_name, program, year, created_at, updated_at, department) " +
-                                    "VALUES (?, ?, 'Unknown', 1, NOW(), NOW(), 'IIIT-Delhi')";
-                            try (PreparedStatement ps2 = erp.prepareStatement(ins)) {
-                                ps2.setString(1, rollNo);
-                                ps2.setString(2, fullName);
-                                ps2.executeUpdate();
+                            String fullName = (first + " " + last).trim();
+                            if (fullName.isEmpty()) fullName = username;
+
+                            try (Connection erpConn = DBConnection.getErpConnection()) {
+                                // check whether an instructor with this instructor_id already exists
+                                try (PreparedStatement check = erpConn.prepareStatement("SELECT instructor_id FROM instructors WHERE instructor_id = ? LIMIT 1")) {
+                                    check.setLong(1, createdAuthUserId);
+                                    try (ResultSet r = check.executeQuery()) {
+                                        if (r.next()) {
+                                            // already present — nothing to do
+                                            System.out.println("[AdminUsersPanel] Instructor row already exists for user_id=" + createdAuthUserId);
+                                        } else {
+                                            // insert instructor with instructor_id = auth user id (required by FK)
+                                            try (PreparedStatement ins = erpConn.prepareStatement(
+                                                    "INSERT INTO instructors (instructor_id, full_name, department, created_at, updated_at) VALUES (?, ?, NULL, NOW(), NOW())")) {
+                                                ins.setLong(1, createdAuthUserId);
+                                                ins.setString(2, fullName);
+                                                ins.executeUpdate();
+                                                System.out.println("[AdminUsersPanel] Created instructors row for user_id=" + createdAuthUserId);
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (Exception ex) {
+                                System.err.println("[AdminUsersPanel] Warning: failed to create instructor row: " + ex.getMessage());
+                                err = new Exception("User added, but failed to add instructor row: " + ex.getMessage(), ex);
                             }
                         }
-                    } catch (SQLException ex) {
-                        // don't fail user creation if student-row insert fails; surface for UI
-                        if (err == null) err = new Exception("User added, but failed to add student row: " + ex.getMessage(), ex);
-                        else err = new Exception(err.getMessage() + " ; Student insert failed: " + ex.getMessage(), ex);
                     }
+
+                    // --- If role is STUDENT, keep existing behavior: create a students row in erp_db (if table exists) ---
+                    if ("STUDENT".equalsIgnoreCase(role)) {
+                        try (Connection erp = DBConnection.getErpConnection()) {
+                            DatabaseMetaData md = erp.getMetaData();
+                            boolean hasUserId = false;
+                            try (ResultSet rs = md.getColumns(erp.getCatalog(), null, "students", "user_id")) {
+                                hasUserId = rs.next();
+                            }
+                            String rollNo = username;
+                            String fullName = (first + " " + last).trim();
+                            if (fullName.isEmpty()) fullName = "Auto " + username;
+                            if (hasUserId && createdAuthUserId > 0) {
+                                String ins = "INSERT INTO students (roll_no, full_name, program, year, created_at, updated_at, user_id, department) " +
+                                        "VALUES (?, ?, 'Unknown', 1, NOW(), NOW(), ?, 'IIIT-Delhi')";
+                                try (PreparedStatement ps2 = erp.prepareStatement(ins)) {
+                                    ps2.setString(1, rollNo);
+                                    ps2.setString(2, fullName);
+                                    ps2.setLong(3, createdAuthUserId);
+                                    ps2.executeUpdate();
+                                }
+                            } else {
+                                String ins = "INSERT INTO students (roll_no, full_name, program, year, created_at, updated_at, department) " +
+                                        "VALUES (?, ?, 'Unknown', 1, NOW(), NOW(), 'IIIT-Delhi')";
+                                try (PreparedStatement ps2 = erp.prepareStatement(ins)) {
+                                    ps2.setString(1, rollNo);
+                                    ps2.setString(2, fullName);
+                                    ps2.executeUpdate();
+                                }
+                            }
+                        } catch (SQLException ex) {
+                            // don't fail user creation if student-row insert fails; surface for UI
+                            if (err == null) err = new Exception("User added, but failed to add student row: " + ex.getMessage(), ex);
+                            else err = new Exception(err.getMessage() + " ; Student insert failed: " + ex.getMessage(), ex);
+                        }
+                    }
+
+                } catch (Exception ex) {
+                    err = ex;
+                    ex.printStackTrace();
                 }
-
-            } catch (Exception ex) {
-                err = ex;
-                ex.printStackTrace();
+                return null;
             }
-            return null;
-        }
 
-        @Override protected void done() {
-            btnAdd.setEnabled(true);
-            if (err != null) {
-                JOptionPane.showMessageDialog(AdminUsersPanel.this, "Failed to add user: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-            } else {
-                JOptionPane.showMessageDialog(AdminUsersPanel.this, "User added successfully", "Success", JOptionPane.INFORMATION_MESSAGE);
-                // clear form
-                txtUsername.setText(""); txtPassword.setText(""); txtFirst.setText(""); txtLast.setText("");
-                txtEmail.setText(""); txtPhone.setText("");
-                loadUsers();
+            @Override protected void done() {
+                btnAdd.setEnabled(true);
+                if (err != null) {
+                    JOptionPane.showMessageDialog(AdminUsersPanel.this, "Failed to add user: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                } else {
+                    JOptionPane.showMessageDialog(AdminUsersPanel.this, "User added successfully", "Success", JOptionPane.INFORMATION_MESSAGE);
+                    // clear form
+                    txtUsername.setText(""); txtPassword.setText(""); txtFirst.setText(""); txtLast.setText("");
+                    txtEmail.setText(""); txtPhone.setText("");
+                    loadUsers();
+                }
             }
-        }
-    }.execute();
-}
+        }.execute();
+    }
 
 
     // --------------------------- delete ---------------------------

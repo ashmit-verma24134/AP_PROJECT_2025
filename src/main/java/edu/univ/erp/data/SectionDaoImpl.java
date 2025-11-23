@@ -7,6 +7,10 @@ import java.util.List;
 /**
  * SectionDaoImpl - concrete DAO for sections.
  * Uses an injected Connection (provided in ctor) so callers control transactions.
+ *
+ * Note: SQL here has been made tolerant to different DB layouts by avoiding references
+ * to non-standard columns like s.cterm or s.schedule. We read the canonical columns:
+ * - semester (may be varchar), term (varchar), year (int), day_time (preferred)
  */
 public class SectionDaoImpl implements SectionDao {
     private final Connection conn;
@@ -29,9 +33,10 @@ public class SectionDaoImpl implements SectionDao {
                    (s.capacity - IFNULL((SELECT COUNT(*)
                        FROM enrollments e
                        WHERE e.section_id = s.section_id AND e.status='ENROLLED'),0)) AS seats_left,
-                   s.semester,
+                   -- prefer explicit semester/term; if semester NULL use term plus year (safe concat)
+                   COALESCE(s.semester, s.term, CONCAT(IFNULL(s.term,''), ' ', IFNULL(CAST(s.year AS CHAR),''))) AS semester,
                    s.year,
-                   s.day_time,
+                   s.day_time AS day_time,
                    s.room,
                    NULL AS section_no
             FROM sections s
@@ -71,9 +76,10 @@ public class SectionDaoImpl implements SectionDao {
                    IFNULL(i.full_name, 'TBA') AS instructor,
                    s.capacity,
                    (s.capacity - IFNULL((SELECT COUNT(*) FROM enrollments e WHERE e.section_id = s.section_id AND e.status='ENROLLED'),0)) AS seats_left,
-                   s.semester,
+                   -- tolerant semester/term
+                   COALESCE(s.semester, s.term, CONCAT(IFNULL(s.term,''), ' ', IFNULL(CAST(s.year AS CHAR),''))) AS semester,
                    s.year,
-                   s.day_time,
+                   s.day_time AS day_time,
                    s.room,
                    s.drop_deadline,
                    s.created_at,
@@ -83,8 +89,8 @@ public class SectionDaoImpl implements SectionDao {
             JOIN courses c ON s.course_id = c.course_id
             LEFT JOIN instructors i ON s.instructor_id = i.instructor_id
             WHERE (? IS NULL OR s.instructor_id = ?)
-              AND (? IS NULL OR CONCAT(s.semester, ' ', s.year) = ?)
-            ORDER BY s.year DESC, s.semester DESC, c.code
+              AND (? IS NULL OR CONCAT(COALESCE(s.semester, s.term, ''), ' ', COALESCE(CAST(s.year AS CHAR), '')) = ?)
+            ORDER BY s.year DESC, COALESCE(s.semester, s.term, '') DESC, c.code
         """;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {

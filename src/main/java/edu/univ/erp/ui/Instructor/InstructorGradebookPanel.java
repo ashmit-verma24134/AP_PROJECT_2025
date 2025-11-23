@@ -1,15 +1,14 @@
 package edu.univ.erp.ui.Instructor;
 
 import edu.univ.erp.util.DBConnection;
-import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
+import edu.univ.erp.service.RegistrationEventBus;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import java.awt.*;
-import java.awt.event.ActionEvent;
 import java.io.*;
 import java.sql.*;
 import java.text.DecimalFormat;
@@ -20,19 +19,12 @@ import java.util.stream.Collectors;
 /**
  * InstructorGradebookPanel
  *
- * - Select a section (only sections taught by instructor are editable).
- * - Load assessment components (weights) for that section.
- * - Load enrolled students and existing scores.
- * - Edit scores in table, save to DB.
- * - Compute automatic final per enrollment using weights and store in grades.computed_final.
- * - Export/Import CSV.
- * - Show class statistics (mean, median, std, min, max, count).
- *
- * Tiny safe initialization checks only. Does not change existing DB schema or existing code behaviors.
+ * (Your original implementation with one small enhancement:)
+ *  - After successful save, we notify RegistrationEventBus so SGPA/transcript panels refresh automatically.
  */
 public class InstructorGradebookPanel extends JPanel {
 
-    private long instructorId = 0L; // set by InstructorPanel.setInstructorContext(...)
+    private long instructorId = 0L;
     private final JComboBox<SectionItem> sectionCombo = new JComboBox<>();
     private final JButton btnRefreshSections = new JButton("Refresh Sections");
     private final JButton btnLoad = new JButton("Load Section");
@@ -47,11 +39,10 @@ public class InstructorGradebookPanel extends JPanel {
     private final GradeTableModel tableModel = new GradeTableModel();
     private final JTable table = new JTable(tableModel);
 
-    // current loaded data
     private long currentSectionId = -1;
     private List<ComponentDef> components = new ArrayList<>();
     private List<EnrollmentRow> enrollmentRows = new ArrayList<>();
-    private boolean editable = false; // whether current instructor can edit this section
+    private boolean editable = false;
 
     private static final DecimalFormat DF = new DecimalFormat("#.##");
 
@@ -59,7 +50,6 @@ public class InstructorGradebookPanel extends JPanel {
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
-        // Top controls
         JPanel top = new JPanel(new BorderLayout());
         top.setOpaque(false);
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
@@ -82,13 +72,11 @@ public class InstructorGradebookPanel extends JPanel {
         top.add(right, BorderLayout.EAST);
         add(top, BorderLayout.NORTH);
 
-        // Table area
         table.setFillsViewportHeight(true);
         JScrollPane sp = new JScrollPane(table);
         sp.setBorder(BorderFactory.createCompoundBorder(new EmptyBorder(8, 8, 8, 8), sp.getBorder()));
         add(sp, BorderLayout.CENTER);
 
-        // Bottom: status + stats
         JPanel bottom = new JPanel(new BorderLayout());
         bottom.setOpaque(false);
         statusLabel.setBorder(new EmptyBorder(6, 8, 6, 8));
@@ -97,7 +85,6 @@ public class InstructorGradebookPanel extends JPanel {
         bottom.add(statsLabel, BorderLayout.EAST);
         add(bottom, BorderLayout.SOUTH);
 
-        // Button actions
         btnRefreshSections.addActionListener(e -> loadSectionsForInstructorAsync());
         btnLoad.addActionListener(e -> {
             SectionItem si = (SectionItem) sectionCombo.getSelectedItem();
@@ -113,24 +100,31 @@ public class InstructorGradebookPanel extends JPanel {
         btnExport.addActionListener(e -> exportCsvAction());
         btnImport.addActionListener(e -> importCsvAction());
 
-        // initial visual hints
         table.setRowHeight(28);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-
-        // allow editing only on score columns; model will enforce
         table.setModel(tableModel);
 
-        // initial load (if instructorId already set by caller)
         SwingUtilities.invokeLater(this::loadSectionsForInstructorAsync);
     }
 
-    // ---- public API to set instructor context ----
-    public void setInstructorContext(long instructorId, String ignoredTerm) {
-        this.instructorId = instructorId;
-        loadSectionsForInstructorAsync();
-    }
+    // EXISTING METHOD — keep as is
+public void setInstructorContext(long instructorId, String ignoredTerm, String ignoredUsername) {
+    this.instructorId = instructorId;
+    loadSectionsForInstructorAsync();
+}
 
-    // ---- UI helpers ----
+// NEW OVERLOAD — add this BELOW the above method
+public void setInstructorContext(long instructorId, String term) {
+    this.instructorId = instructorId;
+    loadSectionsForInstructorAsync();
+}
+
+// NEW 3-PARAM OVERLOAD — add this BELOW the 2-param overload
+public void setInstructorContext(long instructorId, String term, String username) {
+    // simply route to the 2-argument method
+    setInstructorContext(instructorId, term);
+}
+
     private void setStatus(String s) {
         statusLabel.setText(s);
     }
@@ -143,7 +137,6 @@ public class InstructorGradebookPanel extends JPanel {
         btnImport.setEnabled(e);
     }
 
-    // ---- Load sections taught by instructor (async) ----
     private void loadSectionsForInstructorAsync() {
         setStatus("Loading sections...");
         sectionCombo.removeAllItems();
@@ -165,8 +158,8 @@ public class InstructorGradebookPanel extends JPanel {
                             String title = rs.getString("title");
                             String term = rs.getString("term");
                             int year = rs.getInt("year");
-                            int sem = rs.getInt("semester");
-                            String label = String.format("%s - %s (%s %d, sem %d)", code, title, term, year, sem);
+                            String semStr = rs.getString("semester");
+                            String label = String.format("%s - %s (%s %d, sem %s)", code, title, term == null ? "" : term, year, semStr == null ? "" : semStr);
                             list.add(new SectionItem(id, label));
                         }
                     }
@@ -192,7 +185,6 @@ public class InstructorGradebookPanel extends JPanel {
         }.execute();
     }
 
-    // ---- Load a single section: components + enrollments + existing scores ----
     private void loadSectionAsync(long sectionId) {
         setStatus("Loading section data...");
         new SwingWorker<Void, Void>() {
@@ -203,10 +195,7 @@ public class InstructorGradebookPanel extends JPanel {
             @Override
             protected Void doInBackground() throws Exception {
                 try (Connection conn = DBConnection.getErpConnection()) {
-
-                    // 1) verify instructor owns this section (block editing if not)
-                    try (PreparedStatement ps = conn.prepareStatement(
-                            "SELECT instructor_id FROM sections WHERE section_id = ? LIMIT 1")) {
+                    try (PreparedStatement ps = conn.prepareStatement("SELECT instructor_id FROM sections WHERE section_id = ? LIMIT 1")) {
                         ps.setLong(1, sectionId);
                         try (ResultSet rs = ps.executeQuery()) {
                             if (rs.next()) {
@@ -218,20 +207,15 @@ public class InstructorGradebookPanel extends JPanel {
                         }
                     }
 
-                    // 2) load components (weights)
-                    try (PreparedStatement ps = conn.prepareStatement(
-                            "SELECT component_id, name, weight FROM grade_components WHERE section_id = ? ORDER BY component_id")) {
+                    try (PreparedStatement ps = conn.prepareStatement("SELECT component_id, name, weight FROM grade_components WHERE section_id = ? ORDER BY component_id")) {
                         ps.setLong(1, sectionId);
                         try (ResultSet rs = ps.executeQuery()) {
                             while (rs.next()) {
-                                comps.add(new ComponentDef(rs.getLong("component_id"),
-                                        rs.getString("name"),
-                                        rs.getDouble("weight")));
+                                comps.add(new ComponentDef(rs.getLong("component_id"), rs.getString("name"), rs.getDouble("weight")));
                             }
                         }
                     }
 
-                    // 3) load enrolled students
                     try (PreparedStatement ps = conn.prepareStatement(
                             "SELECT e.enrollment_id, st.student_id, st.roll_no, st.full_name " +
                                     "FROM enrollments e JOIN students st ON e.student_id = st.student_id " +
@@ -239,15 +223,11 @@ public class InstructorGradebookPanel extends JPanel {
                         ps.setLong(1, sectionId);
                         try (ResultSet rs = ps.executeQuery()) {
                             while (rs.next()) {
-                                rows.add(new EnrollmentRow(rs.getLong("enrollment_id"),
-                                        rs.getLong("student_id"),
-                                        rs.getString("roll_no"),
-                                        rs.getString("full_name")));
+                                rows.add(new EnrollmentRow(rs.getLong("enrollment_id"), rs.getLong("student_id"), rs.getString("roll_no"), rs.getString("full_name")));
                             }
                         }
                     }
 
-                    // 4) load existing grades for those enrollment ids
                     if (!rows.isEmpty() && !comps.isEmpty()) {
                         String inClause = rows.stream().map(r -> String.valueOf(r.enrollmentId)).collect(Collectors.joining(","));
                         String q = "SELECT enrollment_id, component_id, score, computed_final FROM grades WHERE enrollment_id IN (" + inClause + ")";
@@ -257,11 +237,9 @@ public class InstructorGradebookPanel extends JPanel {
                                 long cid = rs.getLong("component_id");
                                 Double sc = rs.getObject("score") == null ? null : rs.getDouble("score");
                                 String compFinal = rs.getString("computed_final");
-                                // find row
                                 for (EnrollmentRow er : rows) {
                                     if (er.enrollmentId == eid) {
                                         er.setScore(cid, sc);
-                                        // store computed_final per enrollment (we'll compute again after edits)
                                         er.computedFinal = compFinal;
                                         break;
                                     }
@@ -276,21 +254,16 @@ public class InstructorGradebookPanel extends JPanel {
             @Override
             protected void done() {
                 try {
-                    get(); // rethrow exceptions
-                    // set to UI
+                    get();
                     currentSectionId = sectionId;
                     components = comps;
                     enrollmentRows = rows;
                     setEditable(canEdit);
                     tableModel.setData(components, enrollmentRows);
                     tableModel.fireTableStructureChanged();
-                    // set column widths
                     resetColumnSizes();
-                    if (canEdit) {
-                        setStatus("Section loaded (editable). Components: " + components.size());
-                    } else {
-                        setStatus("Section loaded (NOT your section). Editing disabled.");
-                    }
+                    if (canEdit) setStatus("Section loaded (editable). Components: " + components.size());
+                    else setStatus("Section loaded (NOT your section). Editing disabled.");
                     updateStats();
                 } catch (Exception ex) {
                     ex.printStackTrace();
@@ -301,36 +274,30 @@ public class InstructorGradebookPanel extends JPanel {
     }
 
     private void resetColumnSizes() {
-        // Set widths: ID small, name moderate, components uniform, final small
         for (int i = 0; i < table.getColumnCount(); i++) {
-            if (i == 0) table.getColumnModel().getColumn(i).setPreferredWidth(80);    // roll_no
-            else if (i == 1) table.getColumnModel().getColumn(i).setPreferredWidth(220); // full name
+            if (i == 0) table.getColumnModel().getColumn(i).setPreferredWidth(80);
+            else if (i == 1) table.getColumnModel().getColumn(i).setPreferredWidth(220);
             else if (i >= 2 && i < 2 + components.size()) table.getColumnModel().getColumn(i).setPreferredWidth(100);
             else table.getColumnModel().getColumn(i).setPreferredWidth(100);
         }
     }
 
-    // ---- Compute finals in-memory (UI) using component weights ----
     private void computeFinalsInMemory() {
         for (EnrollmentRow r : enrollmentRows) {
             double total = 0.0;
             double weightSum = 0.0;
             for (ComponentDef c : components) {
                 Double sc = r.scores.get(c.componentId);
-                if (sc != null) {
-                    total += (sc * c.weight / 100.0);
-                }
+                if (sc != null) total += (sc * c.weight / 100.0);
                 weightSum += c.weight;
             }
-            // If weightSum != 100, normalize by weightSum (avoid division by zero)
             double finalScore;
             if (weightSum <= 0.0) finalScore = 0.0;
-            else finalScore = (total * 100.0) / weightSum; // scale to percentage
+            else finalScore = (total * 100.0) / weightSum;
             r.computedFinal = DF.format(finalScore);
         }
     }
 
-    // ---- Save all scores to DB (insert/update) ----
     private void saveAllScoresAsync() {
         if (!editable) {
             JOptionPane.showMessageDialog(this, "You are not permitted to modify this section.", "Not allowed", JOptionPane.WARNING_MESSAGE);
@@ -338,16 +305,15 @@ public class InstructorGradebookPanel extends JPanel {
         }
         setStatus("Saving scores...");
         new SwingWorker<Void, Void>() {
+            Exception failure = null;
             @Override
             protected Void doInBackground() throws Exception {
                 try (Connection conn = DBConnection.getErpConnection()) {
                     conn.setAutoCommit(false);
                     try {
-                        // For each enrollment and each component, upsert score (update if exists else insert)
                         for (EnrollmentRow r : enrollmentRows) {
                             for (ComponentDef c : components) {
                                 Double sc = r.scores.get(c.componentId);
-                                // check if grade row exists
                                 try (PreparedStatement psCheck = conn.prepareStatement("SELECT grade_id FROM grades WHERE enrollment_id = ? AND component_id = ? LIMIT 1")) {
                                     psCheck.setLong(1, r.enrollmentId);
                                     psCheck.setLong(2, c.componentId);
@@ -361,19 +327,18 @@ public class InstructorGradebookPanel extends JPanel {
                                                 psUpd.executeUpdate();
                                             }
                                         } else {
-                                            try (PreparedStatement psIns = conn.prepareStatement("INSERT INTO grades (enrollment_id, component_id, score, created_at) VALUES (?, ?, ?, NOW())")) {
+                                            try (PreparedStatement psIns = conn.prepareStatement("INSERT INTO grades (enrollment_id, component_id, score, created_at, weight) VALUES (?, ?, ?, NOW(), ?)")) {
                                                 psIns.setLong(1, r.enrollmentId);
                                                 psIns.setLong(2, c.componentId);
                                                 if (sc == null) psIns.setNull(3, Types.DOUBLE);
                                                 else psIns.setDouble(3, sc);
+                                                psIns.setDouble(4, c.weight);
                                                 psIns.executeUpdate();
                                             }
                                         }
                                     }
                                 }
                             }
-                            // compute final and persist into a representative place: store computed_final in any one grade row for that enrollment
-                            // We'll persist computed_final as an update across all grades rows for that enrollment (simple approach)
                             double finalScore = parseComputedFinal(r.computedFinal);
                             try (PreparedStatement psUpdateFinal = conn.prepareStatement("UPDATE grades SET computed_final = ? WHERE enrollment_id = ?")) {
                                 if (Double.isNaN(finalScore)) psUpdateFinal.setNull(1, Types.VARCHAR);
@@ -399,6 +364,12 @@ public class InstructorGradebookPanel extends JPanel {
                     get();
                     setStatus("Saved scores to database.");
                     updateStats();
+
+                    // NEW: notify other UI parts that grades/registrations changed (SGPA / transcript / mycourses)
+                    try {
+                        RegistrationEventBus.get().notifyChange();
+                    } catch (Throwable t) { t.printStackTrace(); }
+
                 } catch (Exception ex) {
                     ex.printStackTrace();
                     setStatus("Failed saving: " + ex.getMessage());
@@ -407,17 +378,11 @@ public class InstructorGradebookPanel extends JPanel {
         }.execute();
     }
 
-    // ---- parse computed final safely ----
     private double parseComputedFinal(String s) {
         if (s == null) return Double.NaN;
-        try {
-            return Double.parseDouble(s);
-        } catch (Exception ex) {
-            return Double.NaN;
-        }
+        try { return Double.parseDouble(s); } catch (Exception ex) { return Double.NaN; }
     }
 
-    // ---- Stats ----
     private void updateStats() {
         List<Double> finals = enrollmentRows.stream()
                 .map(r -> {
@@ -446,7 +411,6 @@ public class InstructorGradebookPanel extends JPanel {
         statsLabel.setText(s);
     }
 
-    // ---- CSV Export ----
     private void exportCsvAction() {
         if (currentSectionId <= 0) {
             JOptionPane.showMessageDialog(this, "Load a section first.", "No section", JOptionPane.INFORMATION_MESSAGE);
@@ -458,7 +422,6 @@ public class InstructorGradebookPanel extends JPanel {
         if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
         File f = fc.getSelectedFile();
         try (PrintWriter pw = new PrintWriter(new FileWriter(f))) {
-            // header
             List<String> headers = new ArrayList<>();
             headers.add("enrollment_id");
             headers.add("student_id");
@@ -467,7 +430,6 @@ public class InstructorGradebookPanel extends JPanel {
             for (ComponentDef c : components) headers.add(c.name + " (id:" + c.componentId + ")");
             headers.add("computed_final");
             pw.println(String.join(",", headers));
-            // rows
             for (EnrollmentRow r : enrollmentRows) {
                 List<String> cols = new ArrayList<>();
                 cols.add(String.valueOf(r.enrollmentId));
@@ -488,7 +450,6 @@ public class InstructorGradebookPanel extends JPanel {
         }
     }
 
-    // ---- CSV Import ----
     private void importCsvAction() {
         if (!editable) {
             JOptionPane.showMessageDialog(this, "You are not permitted to modify this section.", "Not allowed", JOptionPane.WARNING_MESSAGE);
@@ -507,7 +468,6 @@ public class InstructorGradebookPanel extends JPanel {
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() throws Exception {
-                // read CSV: find header columns mapping to component names (we accept either "component name" or "name (id:123)")
                 try (BufferedReader br = new BufferedReader(new FileReader(f))) {
                     String header = br.readLine();
                     if (header == null) throw new IOException("Empty CSV file.");
@@ -519,7 +479,6 @@ public class InstructorGradebookPanel extends JPanel {
                         String h = cols[i].trim();
                         if (h.equalsIgnoreCase("enrollment_id")) enrollmentCol = i;
                         if (h.equalsIgnoreCase("roll_no")) rollCol = i;
-                        // try to match "name (id:123)"
                         for (ComponentDef cd : components) {
                             if (h.startsWith(cd.name) || h.contains("id:" + cd.componentId)) {
                                 colToComp.put(i, cd);
@@ -530,7 +489,6 @@ public class InstructorGradebookPanel extends JPanel {
                     if (enrollmentCol == -1 && rollCol == -1) {
                         throw new IOException("CSV must contain 'enrollment_id' or 'roll_no' column.");
                     }
-                    // Read rows
                     String line;
                     int updated = 0;
                     while ((line = br.readLine()) != null) {
@@ -540,7 +498,6 @@ public class InstructorGradebookPanel extends JPanel {
                         if (!enrollmentIdStr.isEmpty()) {
                             try { enrollmentId = Long.parseLong(enrollmentIdStr); } catch (Exception ignore) {}
                         }
-                        // find enrollment by roll no if enrollmentId not present
                         EnrollmentRow target = null;
                         if (enrollmentId > 0) {
                             for (EnrollmentRow er : enrollmentRows) if (er.enrollmentId == enrollmentId) { target = er; break; }
@@ -549,7 +506,6 @@ public class InstructorGradebookPanel extends JPanel {
                             for (EnrollmentRow er : enrollmentRows) if (er.rollNo.equalsIgnoreCase(roll)) { target = er; break; }
                         }
                         if (target == null) continue;
-                        // parse component scores
                         boolean anySet = false;
                         for (Map.Entry<Integer, ComponentDef> e : colToComp.entrySet()) {
                             int ci = e.getKey();
@@ -594,67 +550,20 @@ public class InstructorGradebookPanel extends JPanel {
         return out;
     }
 
-    // ---- Data models and helper classes ----
+    // small helper types
+    private static class SectionItem { final long sectionId; final String label; SectionItem(long id, String label) { this.sectionId = id; this.label = label; } @Override public String toString(){return label;} }
+    private static class ComponentDef { final long componentId; final String name; final double weight; ComponentDef(long id, String name, double weight){ this.componentId=id; this.name=name; this.weight=weight; } }
+    private static class EnrollmentRow { final long enrollmentId; final long studentId; final String rollNo; final String fullName; final Map<Long, Double> scores = new HashMap<>(); String computedFinal = null; EnrollmentRow(long enrollmentId, long studentId, String rollNo, String fullName){ this.enrollmentId = enrollmentId; this.studentId = studentId; this.rollNo=rollNo; this.fullName=fullName; } void setScore(long componentId, Double score){ if (score==null) scores.remove(componentId); else scores.put(componentId, score);} }
 
-    private static class SectionItem {
-        final long sectionId;
-        final String label;
-
-        SectionItem(long id, String label) { this.sectionId = id; this.label = label; }
-        @Override public String toString() { return label; }
-    }
-
-    private static class ComponentDef {
-        final long componentId;
-        final String name;
-        final double weight;
-        ComponentDef(long id, String name, double weight) { this.componentId = id; this.name = name; this.weight = weight; }
-    }
-
-    private static class EnrollmentRow {
-        final long enrollmentId;
-        final long studentId;
-        final String rollNo;
-        final String fullName;
-        final Map<Long, Double> scores = new HashMap<>(); // componentId -> score
-        String computedFinal = null;
-
-        EnrollmentRow(long enrollmentId, long studentId, String rollNo, String fullName) {
-            this.enrollmentId = enrollmentId;
-            this.studentId = studentId;
-            this.rollNo = rollNo;
-            this.fullName = fullName;
-        }
-
-        void setScore(long componentId, Double score) {
-            if (score == null) scores.remove(componentId);
-            else scores.put(componentId, score);
-        }
-    }
-
-    // Table model that dynamically adapts to current components
     private class GradeTableModel extends AbstractTableModel {
         private List<ComponentDef> comps = new ArrayList<>();
         private List<EnrollmentRow> rows = new ArrayList<>();
         private boolean editable = false;
-
         void setEditable(boolean e) { this.editable = e; }
-        void setData(List<ComponentDef> comps, List<EnrollmentRow> rows) {
-            this.comps = comps == null ? new ArrayList<>() : comps;
-            this.rows = rows == null ? new ArrayList<>() : rows;
-        }
-
-        @Override
-        public int getRowCount() { return rows.size(); }
-
-        @Override
-        public int getColumnCount() {
-            // roll_no, full_name, components..., computed_final
-            return 2 + comps.size() + 1;
-        }
-
-        @Override
-        public String getColumnName(int column) {
+        void setData(List<ComponentDef> comps, List<EnrollmentRow> rows) { this.comps = comps == null ? new ArrayList<>() : comps; this.rows = rows == null ? new ArrayList<>() : rows; }
+        @Override public int getRowCount() { return rows.size(); }
+        @Override public int getColumnCount() { return 2 + comps.size() + 1; }
+        @Override public String getColumnName(int column) {
             if (column == 0) return "Roll No";
             if (column == 1) return "Student Name";
             if (column >= 2 && column < 2 + comps.size()) {
@@ -663,23 +572,14 @@ public class InstructorGradebookPanel extends JPanel {
             }
             return "Final";
         }
-
-        @Override
-        public Class<?> getColumnClass(int columnIndex) {
+        @Override public Class<?> getColumnClass(int columnIndex) {
             if (columnIndex >= 2 && columnIndex < 2 + comps.size()) return Double.class;
             if (columnIndex == 0) return String.class;
             if (columnIndex == 1) return String.class;
             return String.class;
         }
-
-        @Override
-        public boolean isCellEditable(int rowIndex, int columnIndex) {
-            if (!editable) return false;
-            return (columnIndex >= 2 && columnIndex < 2 + comps.size());
-        }
-
-        @Override
-        public Object getValueAt(int rowIndex, int columnIndex) {
+        @Override public boolean isCellEditable(int rowIndex, int columnIndex) { if (!editable) return false; return (columnIndex >= 2 && columnIndex < 2 + comps.size()); }
+        @Override public Object getValueAt(int rowIndex, int columnIndex) {
             EnrollmentRow r = rows.get(rowIndex);
             if (columnIndex == 0) return r.rollNo;
             if (columnIndex == 1) return r.fullName;
@@ -690,24 +590,18 @@ public class InstructorGradebookPanel extends JPanel {
             }
             return r.computedFinal == null ? "" : r.computedFinal;
         }
-
-        @Override
-        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+        @Override public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
             if (!editable) return;
             if (!(columnIndex >= 2 && columnIndex < 2 + comps.size())) return;
             EnrollmentRow r = rows.get(rowIndex);
             ComponentDef c = comps.get(columnIndex - 2);
-            if (aValue == null) {
-                r.scores.remove(c.componentId);
-            } else {
+            if (aValue == null) { r.scores.remove(c.componentId); }
+            else {
                 try {
                     double d = Double.parseDouble(String.valueOf(aValue));
                     r.scores.put(c.componentId, d);
-                } catch (Exception ex) {
-                    // ignore invalid input
-                }
+                } catch (Exception ex) { }
             }
-            // recompute final for that row
             double total = 0.0, weightSum = 0.0;
             for (ComponentDef cd : comps) {
                 Double sc = r.scores.get(cd.componentId);

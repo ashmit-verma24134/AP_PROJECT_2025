@@ -100,7 +100,8 @@ public class DashboardPanel extends JPanel {
 
         JPanel bottomPanel = new JPanel(new GridLayout(1, 2, 20, 0));
         bottomPanel.setBackground(Theme.BACKGROUND);
-        bottomPanel.add(createPerformanceChartPanel());
+        //bottomPanel.add(createPerformanceChartPanel());
+        bottomPanel.add(createDynamicStatsChartPanel());
         bottomPanel.add(createRecentActivityPanel());
         content.add(bottomPanel);
 
@@ -307,6 +308,12 @@ public class DashboardPanel extends JPanel {
         this.currentUsername = (username == null || username.isBlank()) ? "Instructor" : username;
         SwingUtilities.invokeLater(() -> lblWelcome.setText("👋 Welcome back, " + this.currentUsername));
         loadInstructorMetricsAsync(instructorId);
+        SwingUtilities.invokeLater(() -> {
+        removeAll();
+        revalidate();
+        repaint();
+});
+
     }
 
     private void loadInstructorMetricsAsync(long instructorId) {
@@ -432,4 +439,66 @@ public class DashboardPanel extends JPanel {
         card.add(btnPanel, BorderLayout.SOUTH);
         return card;
     }
+
+    /**
+ * Dynamic Class Stats Graph — Average Final Scores Per Course
+ */
+private JPanel createDynamicStatsChartPanel() {
+
+    DefaultCategoryDataset dataset = new DefaultCategoryDataset();
+
+    // load real stats
+    try (Connection conn = DBConnection.getErpConnection()) {
+
+        String sql = """
+            SELECT c.title,
+                   AVG(CASE 
+                        WHEN g.final_grade REGEXP '^[0-9]+(\\.[0-9]+)?$' 
+                        THEN CAST(g.final_grade AS DECIMAL(10,2))
+                        ELSE NULL
+                       END) AS avg_final
+            FROM grades g
+            JOIN enrollments e ON g.enrollment_id = e.enrollment_id
+            JOIN sections s ON e.section_id = s.section_id
+            JOIN courses c ON s.course_id = c.course_id
+            WHERE g.component = '__FINAL__'
+              AND s.instructor_id = ?
+            GROUP BY c.title
+            ORDER BY c.title;
+        """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, currentInstructorId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String course = rs.getString("title");
+                    double avg = rs.getDouble("avg_final");
+                    dataset.addValue(avg, "Avg Final (%)", course);
+                }
+            }
+        }
+
+    } catch (Exception ex) {
+        ex.printStackTrace();
+    }
+
+    // create chart
+    JFreeChart chart = ChartFactory.createBarChart(
+            "Class Performance Overview",
+            "Course",
+            "Average Final Score",
+            dataset
+    );
+
+    ChartPanel cp = new ChartPanel(chart);
+    cp.setPreferredSize(new Dimension(500, 350));
+    cp.setBackground(Theme.SURFACE);
+
+    JPanel wrapper = new JPanel(new BorderLayout());
+    wrapper.setBackground(Theme.SURFACE);
+    wrapper.setBorder(new EmptyBorder(10, 10, 10, 10));
+    wrapper.add(cp, BorderLayout.CENTER);
+    return wrapper;
+}
+
 }

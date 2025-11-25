@@ -12,7 +12,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 
 /**
- * Minimal AdminSettingsPanel wired to use ERP DB via DBConnection.getErpConnection().
+ * Professionalized AdminSettingsPanel, all logic identical, improved UI and uses icons.
  */
 public class AdminSettingsPanel extends JPanel {
     private final JCheckBox maintenanceCheck = new JCheckBox("Maintenance Mode (show banner to users)");
@@ -30,18 +30,66 @@ public class AdminSettingsPanel extends JPanel {
 
     private void init() {
         setLayout(new BorderLayout());
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 12));
+        setBackground(new Color(242, 245, 250));
 
-        top.add(maintenanceCheck);
-        top.add(backupBtn);
-        top.add(restoreBtn);
+        // Header
+        JLabel titleLabel = new JLabel("System Administration Settings");
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 20f));
+        titleLabel.setIcon(UIManager.getIcon("OptionPane.warningIcon"));
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        add(top, BorderLayout.NORTH);
+        add(titleLabel, BorderLayout.NORTH);
 
-        // listeners
+        // Center panel (card style)
+        JPanel mainPanel = new JPanel();
+        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
+        mainPanel.setOpaque(false);
+
+        // Maintenance section
+        JPanel maintenancePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 18, 10));
+        maintenancePanel.setOpaque(false);
+        maintenancePanel.setBorder(BorderFactory.createTitledBorder("System Status"));
+
+        maintenanceCheck.setFont(maintenanceCheck.getFont().deriveFont(Font.BOLD, 14f));
+        maintenanceCheck.setIcon(UIManager.getIcon("OptionPane.informationIcon"));
+        maintenancePanel.add(maintenanceCheck);
+
+        mainPanel.add(maintenancePanel);
+
+        // Backup/restore buttons with icons
+        JPanel dbPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 18, 15));
+        dbPanel.setOpaque(false);
+        dbPanel.setBorder(BorderFactory.createTitledBorder("Database Control"));
+
+        // Use standard icons; substitute with your own if available
+        backupBtn.setIcon(UIManager.getIcon("FileView.floppyDriveIcon"));
+        restoreBtn.setIcon(UIManager.getIcon("FileView.hardDriveIcon"));
+
+        setButtonStyle(backupBtn, new Color(33, 150, 243), Color.WHITE);
+        setButtonStyle(restoreBtn, new Color(67, 160, 71), Color.WHITE);
+
+        dbPanel.add(backupBtn);
+        dbPanel.add(restoreBtn);
+
+        mainPanel.add(dbPanel);
+
+        add(mainPanel, BorderLayout.CENTER);
+
+        // listeners (logic unchanged)
         maintenanceCheck.addActionListener(this::onToggleMaintenance);
         backupBtn.addActionListener(e -> onBackup());
         restoreBtn.addActionListener(e -> onRestore());
+    }
+
+    private void setButtonStyle(JButton btn, Color bg, Color fg) {
+        btn.setFocusPainted(false);
+        btn.setFont(btn.getFont().deriveFont(Font.BOLD, 14f));
+        btn.setBackground(bg);
+        btn.setForeground(fg);
+        btn.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(bg.darker(), 1),
+                BorderFactory.createEmptyBorder(8, 16, 8, 16)
+        ));
     }
 
     /**
@@ -84,7 +132,6 @@ public class AdminSettingsPanel extends JPanel {
             String msg = on
                     ? "Maintenance Mode is now ON.\n"
                     : "Maintenance Mode is now OFF.\nSystem is back to normal.";
-
             JOptionPane.showMessageDialog(this, msg);
 
         } catch (SQLException ex) {
@@ -95,8 +142,7 @@ public class AdminSettingsPanel extends JPanel {
         }
     }
 
-    // --- Backup / Restore (simple implementation using mysqldump and mysql CLI) ---
-    // These are convenience helpers — credentials are read from creds.cnf in project root.
+    // --- Backup / Restore logic unchanged ---
 
     private void onBackup() {
         JFileChooser fc = new JFileChooser();
@@ -110,16 +156,10 @@ public class AdminSettingsPanel extends JPanel {
         if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
         File out = fc.getSelectedFile();
 
-        // NOTE: creds.cnf must exist in your app working directory (project root) or adjust the path
         String dbName = "erp_db";
-
-        // use absolute path to creds.cnf so it works regardless of working dir
         String credPath = new File("creds.cnf").getAbsolutePath();
-
-        // --defaults-extra-file must appear before database name/options
         String cmd = String.format("mysqldump --defaults-extra-file=\"%s\" %s -r \"%s\"",
                 credPath, dbName, out.getAbsolutePath());
-
         runCommandAsync(cmd, "Backup completed: " + out.getAbsolutePath(), "mysqldump");
     }
 
@@ -127,7 +167,6 @@ public class AdminSettingsPanel extends JPanel {
         JFileChooser fc = new JFileChooser();
         fc.setDialogTitle("Choose SQL backup file to restore");
 
-        // Show SQL files
         fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
                 "SQL Files (*.sql)", "sql"));
         fc.setAcceptAllFileFilterUsed(true);
@@ -142,9 +181,6 @@ public class AdminSettingsPanel extends JPanel {
 
         String dbName = "erp_db";
         String credPath = new File("creds.cnf").getAbsolutePath();
-
-        // Keep shell redirection so your runCommandAsync handles it;
-        // --defaults-extra-file must come before DB name
         String cmd = String.format("mysql --defaults-extra-file=\"%s\" %s < \"%s\"",
                 credPath, dbName, in.getAbsolutePath());
 
@@ -179,7 +215,6 @@ public class AdminSettingsPanel extends JPanel {
                 pb.redirectErrorStream(true);
                 Process p = pb.start();
 
-                // collect output (safe for small outputs)
                 java.io.InputStream is = p.getInputStream();
                 java.util.Scanner s = new java.util.Scanner(is).useDelimiter("\\A");
                 String out = s.hasNext() ? s.next() : "";
@@ -216,7 +251,6 @@ public class AdminSettingsPanel extends JPanel {
 
     private boolean checkCommandOnWindows(String exe) {
         try {
-            // 'where' lists executables on PATH on Windows
             Process p = new ProcessBuilder("cmd.exe", "/c", "where " + exe).start();
             int rc = p.waitFor();
             return rc == 0;

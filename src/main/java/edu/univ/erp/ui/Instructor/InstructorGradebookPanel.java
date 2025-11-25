@@ -1,6 +1,7 @@
 package edu.univ.erp.ui.Instructor;
 
 import edu.univ.erp.util.DBConnection;
+import edu.univ.erp.ui.MainFrame;
 import edu.univ.erp.ui.Theme;
 import edu.univ.erp.data.GradeDaoImpl;
 import edu.univ.erp.service.RegistrationEventBus;
@@ -471,6 +472,16 @@ Double maxScore = null;
                     get();
                     setStatus("Saved scores to database and recomputed finals.");
                     updateStats();
+
+                    // --- Refresh Instructor Dashboard Graph ---
+try {
+    if (SwingUtilities.getWindowAncestor(InstructorGradebookPanel.this) instanceof MainFrame frame) {
+        if (frame.getInstructorPanel() != null) {
+            frame.getInstructorPanel().refreshDashboardStats();
+        }
+    }
+} catch (Exception ignore) {}
+
 
                     // notify other UI parts that grades/registrations changed (SGPA / transcript / mycourses)
                     try {

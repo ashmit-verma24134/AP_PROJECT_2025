@@ -206,4 +206,12 @@ public class InstructorPanel extends JPanel {
     public void setInstructorContext(long instructorId, String username) {
         setInstructorContext(instructorId, null, username);
     }
+
+    public void refreshDashboardStats() {
+    try {
+        if (currentInstructorId > 0)
+            dashboardPanel.setInstructorContext(currentInstructorId, instructorUsername);
+    } catch (Exception ignored) {}
+}
+
 }

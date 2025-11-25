@@ -24,7 +24,7 @@ public class TranscriptPdfExporter {
                                      File outputPdf,
                                      String studentName,
                                      String studentId,
-                                     String program,
+                                     //String program,
                                      String department,
                                      String batch,
                                      File logoFile,
@@ -62,8 +62,8 @@ public class TranscriptPdfExporter {
         left.addCell(createValueCell(studentName));
         left.addCell(createLabelCell("Student ID:"));
         left.addCell(createValueCell(studentId));
-        left.addCell(createLabelCell("Program:"));
-        left.addCell(createValueCell(program));
+        //left.addCell(createLabelCell("Program:"));
+        //left.addCell(createValueCell(program));
         left.addCell(createLabelCell("Batch:"));
         left.addCell(createValueCell(batch));
 

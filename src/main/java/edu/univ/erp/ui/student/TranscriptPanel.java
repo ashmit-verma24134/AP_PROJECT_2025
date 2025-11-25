@@ -31,7 +31,7 @@ public class TranscriptPanel extends JPanel {
 
     // metadata loaded from DB (or set by caller)
     private String studentName;
-    private String program;
+    //private String program;
     private String department;
     private String batch;
     
@@ -130,14 +130,14 @@ public class TranscriptPanel extends JPanel {
                 try (Connection conn = DBConnection.getErpConnection()) {
                     // metadata
                     try (PreparedStatement psInfo = conn.prepareStatement(
-                            "SELECT full_name, program, department, year AS batch FROM students WHERE student_id = ?")) {
+                            "SELECT full_name, department, year AS batch FROM students WHERE student_id = ?")) {
                         try { psInfo.setLong(1, Long.parseLong(studentId)); }
                         catch (NumberFormatException ex) { psInfo.setString(1, studentId); }
                         try (ResultSet rsInfo = psInfo.executeQuery()) {
                             if (rsInfo.next()) {
                                 String dbName = rsInfo.getString("full_name");
                                 if (dbName != null && !dbName.isBlank()) studentName = dbName;
-                                program = rsInfo.getString("program");
+                                //program = rsInfo.getString("program");
                                 department = rsInfo.getString("department");
                                 Object b = rsInfo.getObject("batch");
                                 batch = b == null ? null : String.valueOf(b);
@@ -196,7 +196,7 @@ String sql = """
                     model.setRows(rows);
 
                     if (studentName == null || studentName.isBlank()) studentName = "Student #" + studentId;
-                    if (program == null || program.isBlank()) program = "Program";
+                    //if (program == null || program.isBlank()) program = "Program";
                     if (department == null || department.isBlank()) department = "IIIT-Delhi";
                     if (batch == null || batch.isBlank()) batch = "Batch";
 
@@ -219,7 +219,7 @@ String sql = """
                     cgpaLabel.setText("CGPA: " + cgpaText);
 
                     System.out.println("[DEBUG TranscriptPanel.afterDone] studentId=" + studentId
-                            + " studentName(final)=\"" + studentName + "\" program=" + program
+                            //+ " studentName(final)=\"" + studentName + "\" program=" + program
                             + " dept=" + department + " batch=" + batch + " rows=" + rows.size());
                 } catch (Exception ex) {
                     ex.printStackTrace();
@@ -305,9 +305,10 @@ String sql = """
 
         try (FileWriter fw = new FileWriter(f)) {
             // metadata header
-            fw.append("StudentName,StudentID,Program,Department,Batch,CGPA\n");
-            fw.append(escapeCsv(studentName)).append(',').append(escapeCsv(studentId)).append(',')
-                    .append(escapeCsv(program)).append(',').append(escapeCsv(department)).append(',')
+            fw.append("StudentName,StudentID,Department,Batch,CGPA\n");
+            fw.append(escapeCsv(studentName)).append(',').append(escapeCsv(studentId)).append(',').
+                    //.append(escapeCsv(program)).append(',').
+                    append(escapeCsv(department)).append(',')
                     .append(escapeCsv(batch)).append(',').append(escapeCsv(getCgpaText())).append('\n');
 
             // transcript header (only the requested columns)
@@ -359,14 +360,14 @@ String sql = """
             if (!logo.exists()) logo = null;
 
             String nameToUse = (studentName == null || studentName.isBlank()) ? ("Student #" + studentId) : studentName;
-            String prog = (program == null || program.isBlank()) ? "Program" : program;
+            //String prog = (program == null || program.isBlank()) ? "Program" : program;
             String dept = (department == null || department.isBlank()) ? "IIIT-Delhi" : department;
             String batchVal = (batch == null || batch.isBlank()) ? "Batch" : batch;
             String issueDate = java.time.LocalDate.now().toString();
             String cgpaStr = getCgpaText();
 
             TranscriptPdfExporter.exportPremium(
-                    list, out, nameToUse, studentId, prog, dept, batchVal, logo, issueDate, cgpaStr
+                    list, out, nameToUse, studentId, dept, batchVal, logo, issueDate, cgpaStr
             );
 
             JOptionPane.showMessageDialog(this, "PDF exported!\n" + out.getAbsolutePath());

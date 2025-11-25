@@ -19,6 +19,8 @@ import java.util.List;
 public class NotificationPanel extends JPanel {
     
     private final JPanel notificationsContainer;
+    private String term = null;
+
     private final JButton btnRefresh;
     private long instructorId = 0L;
     
@@ -31,7 +33,7 @@ public class NotificationPanel extends JPanel {
         header.setBackground(Theme.BACKGROUND);
         header.setBorder(new EmptyBorder(8, 12, 8, 12));
         
-        JLabel title = new JLabel("📢 Recent Notifications");
+        JLabel title = new JLabel(" Recent Notifications");
         title.setFont(new Font("Segoe UI", Font.BOLD, 16));
         title.setForeground(Theme.NEUTRAL_DARK);
         header.add(title, BorderLayout.WEST);
@@ -61,11 +63,24 @@ public class NotificationPanel extends JPanel {
         // Initial placeholder
         addPlaceholder("Loading notifications...");
     }
+    public void setInstructorContext(long instructorId, String term) {
+    this.instructorId = instructorId;
+    this.term = term;
+    // call your existing loader — replace loadNotifications() with the real method name if different
+    try {
+        loadNotifications(); // implement this or replace with your existing refresh method
+    } catch (NoSuchMethodError | RuntimeException ignored) {
+        // If you don't have a loader yet, this block is safe; just ensures compile + runtime safety.
+        System.out.println("NotificationPanel: context set for instructorId=" + instructorId + ", term=" + term);
+    }
+}
+
     
     public void setInstructorId(long instructorId) {
         this.instructorId = instructorId;
         loadNotifications();
     }
+    
     
     private void addPlaceholder(String message) {
         notificationsContainer.removeAll();
@@ -77,6 +92,7 @@ public class NotificationPanel extends JPanel {
         notificationsContainer.revalidate();
         notificationsContainer.repaint();
     }
+    
     
     private void loadNotifications() {
         if (instructorId <= 0) {

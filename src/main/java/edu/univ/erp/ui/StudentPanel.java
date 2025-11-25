@@ -192,13 +192,35 @@ public class StudentPanel extends JPanel {
     public void setStudentId(String studentId) {
         this.studentId = studentId;
 
+        // If studentId is not numeric, skip DB lookup to avoid SQL exceptions
+        long numericId = -1L;
+        try {
+            numericId = Long.parseLong(studentId);
+        } catch (NumberFormatException nfe) {
+            // fallback: show the raw id as username and skip DB query
+            final String txt = "Welcome, " + (studentId == null ? "Student" : studentId);
+            SwingUtilities.invokeLater(() -> welcomeLabel.setText(txt));
+            // still let panels know the id (as string) and attempt data loads if they accept string ids
+            dashboardPanel.setStudentId(studentId);
+            catalogPanel.setStudentId(studentId);
+            timetablePanel.setStudentId(studentId);
+            transcriptPanel.setStudentId(studentId);
+            gradesPanel.setStudentId(studentId);
+            myCoursesPanel.setStudentId(studentId);
+            catalogPanel.reloadFromDb(null);
+            timetablePanel.reloadForStudent();
+            transcriptPanel.reloadForStudent();
+            return;
+        }
+
         try (Connection conn = DBConnection.getErpConnection()) {
+            // FIXED JOIN: auth_db.users uses user_id column (not id)
             String q = "SELECT s.full_name, s.roll_no, u.username "
-                    + "FROM students s LEFT JOIN auth_db.users u ON s.user_id = u.id "
+                    + "FROM students s LEFT JOIN auth_db.users u ON s.user_id = u.user_id "
                     + "WHERE s.student_id = ? LIMIT 1";
 
             try (PreparedStatement ps = conn.prepareStatement(q)) {
-                ps.setLong(1, Long.parseLong(studentId));
+                ps.setLong(1, numericId);
 
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
@@ -210,7 +232,8 @@ public class StudentPanel extends JPanel {
                         else if (full != null && !full.isEmpty()) studentUsername = full;
                         else if (roll != null && !roll.isEmpty()) studentUsername = roll;
 
-                        welcomeLabel.setText("Welcome, " + studentUsername);
+                        final String txt = "Welcome, " + studentUsername;
+                        SwingUtilities.invokeLater(() -> welcomeLabel.setText(txt));
                     }
                 }
             }
@@ -219,6 +242,7 @@ public class StudentPanel extends JPanel {
             ex.printStackTrace();
         }
 
+        // notify other panels
         dashboardPanel.setStudentId(studentId);
         catalogPanel.setStudentId(studentId);
         timetablePanel.setStudentId(studentId);

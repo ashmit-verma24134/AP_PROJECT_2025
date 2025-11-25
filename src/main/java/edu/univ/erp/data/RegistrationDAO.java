@@ -2,64 +2,78 @@ package edu.univ.erp.data;
 
 import edu.univ.erp.util.DBConnection;
 
-import java.sql.Connection;
-import java.sql.Date;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import java.sql.*;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
- * Lightweight DAO for enrollment drop action.
- * Uses DBConnection.getErpConnection() for consistency with the rest of your code.
+ * Lightweight DAO for enrollment-drop action.
+ * Called from MyCoursesPanel when student clicks “Drop”.
+ *
+ * POLICY:
+ *  - If drop_deadline IS NULL → drop is allowed.
+ *  - If drop_deadline is a timestamp and NOW > deadline → drop blocked.
  */
 public class RegistrationDAO {
 
     /**
      * Attempt to drop a section (enrollment) for given student.
-     * Returns true if dropped, false if not enrolled or deadline passed.
-     *
-     * Policy: if drop_deadline is NULL, this method ALLOWS drop.
-     * Change behavior if you want NULL to mean "dropping is not allowed".
+     * @return true if dropped, false if deadline passed / not enrolled.
      */
     public boolean dropEnrollment(long studentId, long sectionId) throws Exception {
-        String lockSql = "SELECT e.enrollment_id, e.status, s.drop_deadline " +
-                         "FROM enrollments e JOIN sections s ON e.section_id = s.section_id " +
-                         "WHERE e.student_id = ? AND e.section_id = ? FOR UPDATE";
-        String updateEnrollment = "UPDATE enrollments SET status = 'DROPPED', updated_at = NOW() WHERE enrollment_id = ? AND status = 'ENROLLED'";
+
+        String lockSql =
+                "SELECT e.enrollment_id, e.status, s.drop_deadline " +
+                "FROM enrollments e " +
+                "JOIN sections s ON e.section_id = s.section_id " +
+                "WHERE e.student_id = ? AND e.section_id = ? FOR UPDATE";
+
+        String updateSql =
+                "UPDATE enrollments SET status = 'DROPPED', updated_at = NOW() " +
+                "WHERE enrollment_id = ? AND status = 'ENROLLED'";
 
         try (Connection conn = DBConnection.getErpConnection()) {
             conn.setAutoCommit(false);
+
             try (PreparedStatement ps = conn.prepareStatement(lockSql)) {
                 ps.setLong(1, studentId);
                 ps.setLong(2, sectionId);
+
                 try (ResultSet rs = ps.executeQuery()) {
+
                     if (!rs.next()) {
                         conn.rollback();
-                        return false; // no enrollment found
+                        return false; // no such enrollment
                     }
+
                     long enrollmentId = rs.getLong("enrollment_id");
                     String status = rs.getString("status");
-                    Date dd = rs.getDate("drop_deadline");
+
+                    Timestamp ddlTs = rs.getTimestamp("drop_deadline");  // may be null
 
                     if (!"ENROLLED".equalsIgnoreCase(status)) {
                         conn.rollback();
-                        return false; // not in enrolled state
+                        return false;
                     }
 
-                    // enforce deadline: allow drop when today <= deadline
-                    LocalDate today = LocalDate.now();
-                    if (dd != null) {
-                        LocalDate deadline = dd.toLocalDate();
-                        if (today.isAfter(deadline)) { // after deadline -> disallow
+                    // =============================================
+                    //  DEADLINE CHECK (BLOCK AFTER drop_deadline)
+                    // =============================================
+                    if (ddlTs != null) {
+                        LocalDateTime deadline = ddlTs.toLocalDateTime();
+                        LocalDateTime now = LocalDateTime.now();
+
+                        if (now.isAfter(deadline)) {
                             conn.rollback();
-                            return false;
+                            return false; // deadline passed → cannot drop
                         }
                     }
-                    // if dd == null -> policy currently allows drop. Change if you want disallow.
+                    // if NULL → allowed by policy
 
-                    try (PreparedStatement upr = conn.prepareStatement(updateEnrollment)) {
-                        upr.setLong(1, enrollmentId);
-                        int updated = upr.executeUpdate();
+                    // Perform drop
+                    try (PreparedStatement upd = conn.prepareStatement(updateSql)) {
+                        upd.setLong(1, enrollmentId);
+                        int updated = upd.executeUpdate();
                         if (updated == 1) {
                             conn.commit();
                             return true;

@@ -6,6 +6,11 @@ import edu.univ.erp.util.DBConnection;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
+import java.time.ZoneId;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Date;
+import java.text.SimpleDateFormat;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -14,12 +19,9 @@ import java.sql.*;
 /**
  * AdminCourseSectionPanel - courses + sections editor with section edit dialog (assign instructor)
  *
- * Assumes concrete schema:
- *  - courses(course_id, code, title, credits, ...)
- *  - sections(section_id, course_id, instructor_id, day_time, room, capacity, semester, year, ...)
- *  - instructors(instructor_id, full_name, ...)
- *
- * Replace your existing file with this.
+ * - Upper drop-deadline spinner removed per request.
+ * - Table shows only date (yyyy-MM-dd) for drop deadline (no time).
+ * - New sections inserted with drop_deadline = NULL by default (use editor to set).
  */
 public class AdminCourseSectionPanel extends JPanel {
 
@@ -27,10 +29,12 @@ public class AdminCourseSectionPanel extends JPanel {
     private final JTextField txtCourseCode = new JTextField(12);
     private final JTextField txtCourseTitle = new JTextField(30);
     private final JTextField txtCourseCredits = new JTextField(6);
+
     private final DefaultTableModel coursesModel;
     private final JTable coursesTable;
     private final JButton btnCourseAdd = new JButton("Add Course");
     private final JButton btnCourseRefresh = new JButton("Refresh");
+    private final SimpleDateFormat dropFmt = new SimpleDateFormat("yyyy-MM-dd");
     private final JButton btnCourseDelete = new JButton("Delete Course"); // new
 
     // --- Sections UI ---
@@ -38,6 +42,9 @@ public class AdminCourseSectionPanel extends JPanel {
     private final JComboBox<InstructorEntry> cbInstructors = new JComboBox<>();
     private final JTextField txtDayTime = new JTextField(20);
     private final JTextField txtRoom = new JTextField(12);
+    // at class level
+private final JSpinner spDropDeadline = new JSpinner(new SpinnerDateModel());
+
     private final JTextField txtCapacity = new JTextField(6);
     private final JTextField txtSemester = new JTextField(8);
     private final JTextField txtYear = new JTextField(6);
@@ -170,6 +177,8 @@ public class AdminCourseSectionPanel extends JPanel {
         secForm.add(new JLabel("Year:"), sg);
         sg.gridx = 1; secForm.add(txtYear, sg);
 
+        // NOTE: upper drop-deadline spinner removed on purpose (user requested)
+
         JPanel secBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         secBtns.setOpaque(false);
         secBtns.add(btnSectionAdd);
@@ -182,10 +191,11 @@ public class AdminCourseSectionPanel extends JPanel {
         pSections.add(secForm, BorderLayout.NORTH);
 
         sectionsModel = new DefaultTableModel(new String[]{
-                "Section ID","Course ID","Course Code","Instructor ID","Instructor","Day/Time","Room","Capacity","Semester","Year"
+                "Section ID","Course ID","Course Code","Instructor ID","Instructor","Day/Time","Room","Capacity","Semester","Year","Drop Deadline"
         }, 0) {
             @Override public boolean isCellEditable(int row, int col) { return false; }
         };
+
         sectionsTable = new JTable(sectionsModel);
         sectionsTable.setAutoCreateRowSorter(true);
         sectionsTable.setRowHeight(26);
@@ -233,7 +243,6 @@ public class AdminCourseSectionPanel extends JPanel {
 
         btnSectionRefresh.addActionListener(e -> loadSectionsAndFillCombos());
         btnSectionAdd.addActionListener(e -> addSection());
-        btnSectionDelete.addActionListener(e -> deleteSection()); // new
 
         // initial load
         SwingUtilities.invokeLater(() -> {
@@ -522,10 +531,10 @@ public class AdminCourseSectionPanel extends JPanel {
             @Override protected java.util.List<Object[]> doInBackground() {
                 java.util.List<Object[]> rows = new java.util.ArrayList<>();
                 StringBuilder q = new StringBuilder(
-                    "SELECT s.section_id, s.course_id, c.code AS course_code, " +
-                    "s.instructor_id, i.full_name AS instructor_name, s.day_time, s.room, s.capacity, s.semester, s.year " +
-                    "FROM sections s LEFT JOIN courses c ON s.course_id = c.course_id " +
-                    "LEFT JOIN instructors i ON s.instructor_id = i.instructor_id "
+"SELECT s.section_id, s.course_id, c.code AS course_code, " +
+"s.instructor_id, i.full_name AS instructor_name, s.day_time, s.room, s.capacity, s.semester, s.year, s.drop_deadline " +
+"FROM sections s LEFT JOIN courses c ON s.course_id = c.course_id " +
+"LEFT JOIN instructors i ON s.instructor_id = i.instructor_id "
                 );
 
                 boolean whereAdded = false;
@@ -556,7 +565,14 @@ public class AdminCourseSectionPanel extends JPanel {
                             Object cap = rs.getObject("capacity");
                             Object sem = rs.getObject("semester");
                             Object year = rs.getObject("year");
-                            rows.add(new Object[]{ sectionId, cId, courseCode, instrIdObj, instrName, dayTime, room, cap, sem, year });
+
+                            Timestamp ddlTs = rs.getTimestamp("drop_deadline"); // may be null
+                            String ddlStr = "";
+                            if (ddlTs != null) {
+                                ddlStr = dropFmt.format(new java.util.Date(ddlTs.getTime())); // date-only
+                            }
+
+                            rows.add(new Object[]{ sectionId, cId, courseCode, instrIdObj, instrName, dayTime, room, cap, sem, year, ddlStr });
                         }
                     }
                 } catch (Exception ex) {
@@ -589,178 +605,200 @@ public class AdminCourseSectionPanel extends JPanel {
         final java.util.List<CourseEntry> courses = new java.util.ArrayList<>();
         final java.util.List<InstructorEntry> instructors = new java.util.ArrayList<>();
     }
-    private void addSection() {
-        final CourseEntry selectedCourse = (CourseEntry) cbCourses.getSelectedItem();
-        final InstructorEntry selectedInstructor = (InstructorEntry) cbInstructors.getSelectedItem();
-        final String dayTime = txtDayTime.getText().trim();
-        final String room = txtRoom.getText().trim();
-        final String capStr = txtCapacity.getText().trim();
-        final String sem = txtSemester.getText().trim();
-        final String yearStr = txtYear.getText().trim();
+    
+private void addSection() {
+    final CourseEntry selectedCourse = (CourseEntry) cbCourses.getSelectedItem();
+    final InstructorEntry selectedInstructor = (InstructorEntry) cbInstructors.getSelectedItem();
+    final String dayTime = txtDayTime.getText().trim();
+    final String room = txtRoom.getText().trim();
+    final String capStr = txtCapacity.getText().trim();
+    final String sem = txtSemester.getText().trim();
+    final String yearStr = txtYear.getText().trim();
 
-        if (selectedCourse == null) { JOptionPane.showMessageDialog(this, "Select a course"); return; }
+    if (selectedCourse == null) { JOptionPane.showMessageDialog(this, "Select a course"); return; }
 
-        final Integer capVal;
-        if (capStr.isEmpty()) capVal = null;
-        else {
-            try { capVal = Integer.parseInt(capStr); } catch (NumberFormatException ex) { JOptionPane.showMessageDialog(this, "Invalid capacity"); return; }
-        }
-
-        final Integer yearVal;
-        if (yearStr.isEmpty()) yearVal = null;
-        else {
-            try { yearVal = Integer.parseInt(yearStr); } catch (NumberFormatException ex) { JOptionPane.showMessageDialog(this, "Invalid year"); return; }
-        }
-
-        // instructor id nullable
-        final Long instrId = (selectedInstructor == null || selectedInstructor.id == null) ? null : selectedInstructor.id;
-        final long courseId = selectedCourse.id;
-
-        btnSectionAdd.setEnabled(false);
-
-        new SwingWorker<Void, Void>() {
-            Exception err = null;
-            @Override protected Void doInBackground() {
-                // Build insert using available fields present in your sections table
-                String sql = "INSERT INTO sections (course_id, instructor_id, day_time, room, capacity, semester, year, created_at, updated_at) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
-                try (Connection conn = DBConnection.getErpConnection();
-                     PreparedStatement ps = conn.prepareStatement(sql)) {
-                    int idx = 1;
-                    ps.setLong(idx++, courseId);
-                    if (instrId == null) ps.setNull(idx++, Types.BIGINT); else ps.setLong(idx++, instrId);
-                    if (dayTime.isEmpty()) ps.setNull(idx++, Types.VARCHAR); else ps.setString(idx++, dayTime);
-                    if (room.isEmpty()) ps.setNull(idx++, Types.VARCHAR); else ps.setString(idx++, room);
-                    if (capVal == null) ps.setNull(idx++, Types.INTEGER); else ps.setInt(idx++, capVal);
-                    if (sem.isEmpty()) ps.setNull(idx++, Types.VARCHAR); else ps.setString(idx++, sem);
-                    if (yearVal == null) ps.setNull(idx++, Types.INTEGER); else ps.setInt(idx++, yearVal);
-                    ps.executeUpdate();
-                } catch (SQLException ex) {
-                    // common cause: FK fail if instructor id doesn't exist (shouldn't if dropdown used)
-                    err = ex;
-                } catch (Exception ex) {
-                    err = ex;
-                }
-                return null;
-            }
-            @Override protected void done() {
-                btnSectionAdd.setEnabled(true);
-                if (err != null) {
-                    JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to add section: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                } else {
-                    // clear
-                    txtDayTime.setText(""); txtRoom.setText(""); txtCapacity.setText(""); txtSemester.setText(""); txtYear.setText("");
-                    // refresh tables & combos
-                    loadSectionsAndFillCombos();
-                    loadCourses();
-                }
-            }
-        }.execute();
+    final Integer capVal;
+    if (capStr.isEmpty()) capVal = null;
+    else {
+        try { capVal = Integer.parseInt(capStr); } catch (NumberFormatException ex) { JOptionPane.showMessageDialog(this, "Invalid capacity"); return; }
     }
 
-    // new: delete selected section
-    private void deleteSection() {
-        int viewRow = sectionsTable.getSelectedRow();
-        if (viewRow < 0) {
-            JOptionPane.showMessageDialog(this, "Select a section to delete");
-            return;
-        }
-        int modelRow = sectionsTable.convertRowIndexToModel(viewRow);
-        Object idObj = sectionsModel.getValueAt(modelRow, 0);
-        final long sectionId;
-        try { sectionId = (idObj instanceof Number) ? ((Number) idObj).longValue() : Long.parseLong(String.valueOf(idObj)); }
-        catch (Exception ex) { JOptionPane.showMessageDialog(this, "Invalid section id"); return; }
-
-        int ok = JOptionPane.showConfirmDialog(this, "Delete selected section? This is irreversible.", "Confirm delete", JOptionPane.YES_NO_OPTION);
-        if (ok != JOptionPane.YES_OPTION) return;
-
-        btnSectionDelete.setEnabled(false);
-        new SwingWorker<Void, Void>() {
-            Exception err = null;
-            @Override protected Void doInBackground() {
-                try (Connection conn = DBConnection.getErpConnection();
-                     PreparedStatement ps = conn.prepareStatement("DELETE FROM sections WHERE section_id = ?")) {
-                    ps.setLong(1, sectionId);
-                    int affected = ps.executeUpdate();
-                    if (affected == 0) throw new SQLException("No rows deleted (section may not exist).");
-                } catch (Exception ex) {
-                    err = ex;
-                }
-                return null;
-            }
-            @Override protected void done() {
-                btnSectionDelete.setEnabled(true);
-                if (err != null) {
-                    JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to delete section: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                } else {
-                    loadSectionsAndFillCombos();
-                    loadCourses();
-                }
-            }
-        }.execute();
+    final Integer yearVal;
+    if (yearStr.isEmpty()) yearVal = null;
+    else {
+        try { yearVal = Integer.parseInt(yearStr); } catch (NumberFormatException ex) { JOptionPane.showMessageDialog(this, "Invalid year"); return; }
     }
+
+    final Long instrId = (selectedInstructor == null || selectedInstructor.id == null) ? null : selectedInstructor.id;
+    final long courseId = selectedCourse.id;
+
+    // --- CRITICAL: capture spinner value here (snapshot) so the worker doesn't need to access field directly ---
+    final Object spinnerSnapshot = spDropDeadline.getValue(); // <-- capture BEFORE SwingWorker
+
+    btnSectionAdd.setEnabled(false);
+
+    new SwingWorker<Void, Void>() {
+        Exception err = null;
+        @Override protected Void doInBackground() {
+            String sql = "INSERT INTO sections (course_id, instructor_id, day_time, room, capacity, semester, year, drop_deadline, created_at, updated_at) " +
+                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
+            try (Connection conn = DBConnection.getErpConnection();
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+
+                int idx = 1;
+
+                ps.setLong(idx++, courseId);
+
+                if (instrId == null) ps.setNull(idx++, Types.BIGINT);
+                else ps.setLong(idx++, instrId);
+
+                if (dayTime.isEmpty()) ps.setNull(idx++, Types.VARCHAR);
+                else ps.setString(idx++, dayTime);
+
+                if (room.isEmpty()) ps.setNull(idx++, Types.VARCHAR);
+                else ps.setString(idx++, room);
+
+                if (capVal == null) ps.setNull(idx++, Types.INTEGER);
+                else ps.setInt(idx++, capVal);
+
+                if (sem.isEmpty()) ps.setNull(idx++, Types.VARCHAR);
+                else ps.setString(idx++, sem);
+
+                if (yearVal == null) ps.setNull(idx++, Types.INTEGER);
+                else ps.setInt(idx++, yearVal);
+
+                // --- DATE-ONLY drop_deadline handling (use spinnerSnapshot) ---
+                if (spinnerSnapshot instanceof java.util.Date) {
+                    java.util.Date dt = (java.util.Date) spinnerSnapshot;
+                    LocalDate localDate = dt.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+                    ps.setDate(idx++, java.sql.Date.valueOf(localDate)); // store DATE only (no time)
+                } else {
+                    ps.setNull(idx++, Types.DATE);
+                }
+
+                ps.executeUpdate();
+
+            } catch (SQLException ex) {
+                err = ex;
+            } catch (Exception ex) {
+                err = ex;
+            }
+            return null;
+        }
+
+        @Override protected void done() {
+            btnSectionAdd.setEnabled(true);
+            if (err != null) {
+                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to add section: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            } else {
+                txtDayTime.setText(""); txtRoom.setText(""); txtCapacity.setText(""); txtSemester.setText(""); txtYear.setText("");
+                loadSectionsAndFillCombos();
+                loadCourses();
+            }
+        }
+    }.execute();
+}
 
     // ------------------- Inner dialog for editing a single section -------------------
-    // (unchanged from your version)
+    // (unchanged from your version except spinner uses date-only editor format)
     private static class SectionEditorDialog extends JDialog {
         private final long sectionId;
+
         private final JTextField txtDayTime = new JTextField(16);
         private final JTextField txtRoom = new JTextField(12);
         private final JTextField txtCapacity = new JTextField(6);
         private final JTextField txtSemester = new JTextField(8);
         private final JTextField txtYear = new JTextField(6);
+
+        // spinner only inside dialog; date-only editor
+        private final JSpinner spDropDeadline = new JSpinner(new SpinnerDateModel());
         private final JComboBox<InstructorEntry> cbInstructors = new JComboBox<>();
+
         private final JButton btnSave = new JButton("Save");
         private final JButton btnCancel = new JButton("Cancel");
 
         SectionEditorDialog(Window owner, long sectionId) {
             super(owner, "Edit Section", ModalityType.APPLICATION_MODAL);
             this.sectionId = sectionId;
-            setSize(520, 320);
+
+            setSize(520, 360);
             setLocationRelativeTo(owner);
 
             JPanel p = new JPanel(new GridBagLayout());
             p.setBorder(new EmptyBorder(12,12,12,12));
             p.setBackground(Theme.BACKGROUND);
-            GridBagConstraints gc = new GridBagConstraints();
-            gc.insets = new Insets(6,8,6,8);
-            gc.anchor = GridBagConstraints.WEST;
 
-            gc.gridx = 0; gc.gridy = 0; p.add(new JLabel("Day/Time:"), gc);
+            GridBagConstraints gc = new GridBagConstraints();
+            gc.insets = new Insets(6, 8, 6, 8);
+            gc.anchor = GridBagConstraints.WEST;
+            gc.fill = GridBagConstraints.HORIZONTAL;
+            gc.weightx = 1.0;
+
+            int row = 0;
+
+            // Row 0 — Day/Time
+            gc.gridx = 0; gc.gridy = row; p.add(new JLabel("Day/Time:"), gc);
             gc.gridx = 1; p.add(txtDayTime, gc);
-            gc.gridx = 0; gc.gridy = 1; p.add(new JLabel("Room:"), gc);
+
+            // Row 1 — Room
+            row++;
+            gc.gridx = 0; gc.gridy = row; p.add(new JLabel("Room:"), gc);
             gc.gridx = 1; p.add(txtRoom, gc);
-            gc.gridx = 0; gc.gridy = 2; p.add(new JLabel("Capacity:"), gc);
+
+            // Row 2 — Capacity
+            row++;
+            gc.gridx = 0; gc.gridy = row; p.add(new JLabel("Capacity:"), gc);
             gc.gridx = 1; p.add(txtCapacity, gc);
-            gc.gridx = 0; gc.gridy = 3; p.add(new JLabel("Semester:"), gc);
+
+            // Row 3 — Semester
+            row++;
+            gc.gridx = 0; gc.gridy = row; p.add(new JLabel("Semester:"), gc);
             gc.gridx = 1; p.add(txtSemester, gc);
-            gc.gridx = 0; gc.gridy = 4; p.add(new JLabel("Year:"), gc);
+
+            // Row 4 — Year
+            row++;
+            gc.gridx = 0; gc.gridy = row; p.add(new JLabel("Year:"), gc);
             gc.gridx = 1; p.add(txtYear, gc);
-            gc.gridx = 0; gc.gridy = 5; p.add(new JLabel("Instructor:"), gc);
+
+            // Row 5 — Drop Deadline (date only)
+            row++;
+            gc.gridx = 0; gc.gridy = row; p.add(new JLabel("Drop Deadline:"), gc);
+            gc.gridx = 1;
+            spDropDeadline.setEditor(new JSpinner.DateEditor(spDropDeadline, "yyyy-MM-dd"));
+            p.add(spDropDeadline, gc);
+
+            // Row 6 — Instructor
+            row++;
+            gc.gridx = 0; gc.gridy = row; p.add(new JLabel("Instructor:"), gc);
             gc.gridx = 1; p.add(cbInstructors, gc);
 
-            JPanel br = new JPanel(new FlowLayout(FlowLayout.RIGHT,8,0));
+            // Row 7 — Buttons
+            row++;
+            JPanel br = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
             br.setOpaque(false);
-            br.add(btnSave); br.add(btnCancel);
-            gc.gridx = 0; gc.gridy = 6; gc.gridwidth = 2; p.add(br, gc);
+            br.add(btnSave);
+            br.add(btnCancel);
+
+            gc.gridx = 0; gc.gridy = row; gc.gridwidth = 2; gc.anchor = GridBagConstraints.EAST;
+            p.add(br, gc);
 
             setContentPane(p);
 
             btnCancel.addActionListener(e -> dispose());
             btnSave.addActionListener(e -> saveSection());
 
-            // load instructor list then section details
-            SwingUtilities.invokeLater(() -> {
-                loadInstructors();
-                loadSection();
-            });
+            // load instructors then section data
+            SwingUtilities.invokeLater(this::loadInstructors);
         }
 
         private void loadInstructors() {
             cbInstructors.removeAllItems();
             cbInstructors.addItem(new InstructorEntry(null, "<No Instructor>"));
+
             new SwingWorker<Void, Void>() {
                 Exception err = null;
+                java.util.List<InstructorEntry> loaded = new java.util.ArrayList<>();
+
                 @Override protected Void doInBackground() {
                     String q = "SELECT instructor_id, full_name FROM instructors ORDER BY instructor_id";
                     try (Connection conn = DBConnection.getErpConnection();
@@ -769,14 +807,24 @@ public class AdminCourseSectionPanel extends JPanel {
                         while (rs.next()) {
                             long id = rs.getLong("instructor_id");
                             String name = rs.getString("full_name");
-                            final InstructorEntry ie = new InstructorEntry(id, name == null ? ("#" + id) : name);
-                            SwingUtilities.invokeLater(() -> cbInstructors.addItem(ie));
+                            loaded.add(new InstructorEntry(id, name == null ? "#" + id : name));
                         }
-                    } catch (Exception ex) { err = ex; }
+                    } catch (Exception ex) {
+                        err = ex;
+                    }
                     return null;
                 }
+
                 @Override protected void done() {
-                    if (err != null) JOptionPane.showMessageDialog(SectionEditorDialog.this, "Failed to load instructors: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    if (err != null) {
+                        JOptionPane.showMessageDialog(SectionEditorDialog.this,
+                                "Failed to load instructors: " + err.getMessage(),
+                                "Error", JOptionPane.ERROR_MESSAGE);
+                    } else {
+                        for (InstructorEntry ie : loaded) cbInstructors.addItem(ie);
+                    }
+                    // now load the section row (we have instructor list available to select)
+                    loadSection();
                 }
             }.execute();
         }
@@ -785,28 +833,24 @@ public class AdminCourseSectionPanel extends JPanel {
             new SwingWorker<Void, Void>() {
                 Exception err = null;
                 Object instrIdObj = null;
+                Timestamp ddlTs = null;
+                String dt = null, room = null, sem = null;
+                Object cap = null, year = null;
+
                 @Override protected Void doInBackground() {
-                    // NOTE: do NOT select non-existent column 'section_code'
-                    String q = "SELECT section_id, day_time, room, capacity, semester, year, instructor_id FROM sections WHERE section_id = ?";
+                    String q = "SELECT day_time, room, capacity, semester, year, instructor_id, drop_deadline FROM sections WHERE section_id = ?";
                     try (Connection conn = DBConnection.getErpConnection();
                          PreparedStatement ps = conn.prepareStatement(q)) {
                         ps.setLong(1, sectionId);
                         try (ResultSet rs = ps.executeQuery()) {
                             if (rs.next()) {
-                                final String dt = rs.getString("day_time");
-                                final String room = rs.getString("room");
-                                final Object cap = rs.getObject("capacity");
-                                final String sem = rs.getString("semester");
-                                final Object year = rs.getObject("year");
+                                dt = rs.getString("day_time");
+                                room = rs.getString("room");
+                                cap = rs.getObject("capacity");
+                                sem = rs.getString("semester");
+                                year = rs.getObject("year");
                                 instrIdObj = rs.getObject("instructor_id");
-
-                                SwingUtilities.invokeLater(() -> {
-                                    txtDayTime.setText(dt == null ? "" : dt);
-                                    txtRoom.setText(room == null ? "" : room);
-                                    txtCapacity.setText(cap == null ? "" : String.valueOf(cap));
-                                    txtSemester.setText(sem == null ? "" : sem);
-                                    txtYear.setText(year == null ? "" : String.valueOf(year));
-                                });
+                                ddlTs = rs.getTimestamp("drop_deadline");
                             } else {
                                 err = new SQLException("Section not found");
                             }
@@ -814,26 +858,38 @@ public class AdminCourseSectionPanel extends JPanel {
                     } catch (Exception ex) { err = ex; }
                     return null;
                 }
+
                 @Override protected void done() {
                     if (err != null) {
-                        JOptionPane.showMessageDialog(SectionEditorDialog.this, "Failed to load section: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                        JOptionPane.showMessageDialog(SectionEditorDialog.this,
+                                "Failed to load section: " + err.getMessage(),
+                                "Error", JOptionPane.ERROR_MESSAGE);
                         return;
                     }
+                    // update UI once (on EDT)
+                    txtDayTime.setText(dt == null ? "" : dt);
+                    txtRoom.setText(room == null ? "" : room);
+                    txtCapacity.setText(cap == null ? "" : String.valueOf(cap));
+                    txtSemester.setText(sem == null ? "" : sem);
+                    txtYear.setText(year == null ? "" : String.valueOf(year));
+
+                    if (ddlTs != null) {
+                        spDropDeadline.setValue(new java.util.Date(ddlTs.getTime()));
+                    }
+
                     // select instructor in combo (if present)
-                    SwingUtilities.invokeLater(() -> {
-                        if (instrIdObj == null) {
-                            cbInstructors.setSelectedIndex(0);
-                        } else {
-                            Long iidVal = (instrIdObj instanceof Number) ? ((Number) instrIdObj).longValue() : Long.parseLong(String.valueOf(instrIdObj));
-                            for (int i = 0; i < cbInstructors.getItemCount(); ++i) {
-                                InstructorEntry it = cbInstructors.getItemAt(i);
-                                if (it != null && it.id != null && it.id.equals(iidVal)) {
-                                    cbInstructors.setSelectedIndex(i);
-                                    break;
-                                }
+                    if (instrIdObj == null) {
+                        if (cbInstructors.getItemCount() > 0) cbInstructors.setSelectedIndex(0);
+                    } else {
+                        Long iidVal = (instrIdObj instanceof Number) ? ((Number) instrIdObj).longValue() : Long.parseLong(String.valueOf(instrIdObj));
+                        for (int i = 0; i < cbInstructors.getItemCount(); ++i) {
+                            InstructorEntry it = cbInstructors.getItemAt(i);
+                            if (it != null && it.id != null && it.id.equals(iidVal)) {
+                                cbInstructors.setSelectedIndex(i);
+                                break;
                             }
                         }
-                    });
+                    }
                 }
             }.execute();
         }
@@ -844,36 +900,59 @@ public class AdminCourseSectionPanel extends JPanel {
             final String cap = txtCapacity.getText().trim();
             final String sem = txtSemester.getText().trim();
             final String year = txtYear.getText().trim();
+
             final InstructorEntry selInstr = (InstructorEntry) cbInstructors.getSelectedItem();
-            final Long instrId = (selInstr == null ? null : selInstr.id);
+            final Long instrId = selInstr == null ? null : selInstr.id;
 
             btnSave.setEnabled(false);
 
             new SwingWorker<Void, Void>() {
                 Exception err = null;
+
                 @Override protected Void doInBackground() {
-                    try (Connection conn = DBConnection.getErpConnection()) {
-                        String sql = "UPDATE sections SET day_time = ?, room = ?, capacity = ?, semester = ?, year = ?, instructor_id = ?, updated_at = NOW() WHERE section_id = ?";
-                        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                            if (dayTime.isEmpty()) ps.setNull(1, Types.VARCHAR); else ps.setString(1, dayTime);
-                            if (room.isEmpty()) ps.setNull(2, Types.VARCHAR); else ps.setString(2, room);
-                            if (cap.isEmpty()) ps.setNull(3, Types.INTEGER); else ps.setInt(3, Integer.parseInt(cap));
-                            if (sem.isEmpty()) ps.setNull(4, Types.VARCHAR); else ps.setString(4, sem);
-                            if (year.isEmpty()) ps.setNull(5, Types.INTEGER); else ps.setInt(5, Integer.parseInt(year));
-                            if (instrId == null) ps.setNull(6, Types.BIGINT); else ps.setLong(6, instrId);
-                            ps.setLong(7, sectionId);
-                            ps.executeUpdate();
+                    String sql = "UPDATE sections SET day_time=?, room=?, capacity=?, semester=?, year=?, instructor_id=?, drop_deadline=?, updated_at=NOW() WHERE section_id=?";
+                    try (Connection conn = DBConnection.getErpConnection();
+                         PreparedStatement ps = conn.prepareStatement(sql)) {
+
+                        // 1..5
+                        if (dayTime.isEmpty()) ps.setNull(1, Types.VARCHAR); else ps.setString(1, dayTime);
+                        if (room.isEmpty()) ps.setNull(2, Types.VARCHAR); else ps.setString(2, room);
+                        if (cap.isEmpty()) ps.setNull(3, Types.INTEGER); else ps.setInt(3, Integer.parseInt(cap));
+                        if (sem.isEmpty()) ps.setNull(4, Types.VARCHAR); else ps.setString(4, sem);
+                        if (year.isEmpty()) ps.setNull(5, Types.INTEGER); else ps.setInt(5, Integer.parseInt(year));
+
+                        // 6 instructor
+                        if (instrId == null) ps.setNull(6, Types.BIGINT); else ps.setLong(6, instrId);
+
+                        // 7 drop_deadline (spinner provides Date; we convert to Timestamp at midnight-ish)
+                        Object spinVal = spDropDeadline.getValue();
+                        if (spinVal instanceof Date) {
+                            // use timestamp at spinner's date (time portion ignored by editor, but may carry system time)
+                            ps.setTimestamp(7, new Timestamp(((Date) spinVal).getTime()));
+                        } else {
+                            ps.setNull(7, Types.TIMESTAMP);
                         }
-                    } catch (Exception ex) { err = ex; }
+
+                        // 8 section id
+                        ps.setLong(8, sectionId);
+
+                        ps.executeUpdate();
+                    } catch (Exception ex) {
+                        err = ex;
+                    }
                     return null;
                 }
+
                 @Override protected void done() {
                     btnSave.setEnabled(true);
-                    if (err != null) JOptionPane.showMessageDialog(SectionEditorDialog.this, "Failed to save section: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                    else dispose();
+                    if (err != null)
+                        JOptionPane.showMessageDialog(SectionEditorDialog.this,
+                                "Failed to save section: " + err.getMessage(),
+                                "Error", JOptionPane.ERROR_MESSAGE);
+                    else
+                        dispose();
                 }
             }.execute();
         }
     }
-
 }

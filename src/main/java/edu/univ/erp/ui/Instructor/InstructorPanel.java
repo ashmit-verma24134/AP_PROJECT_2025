@@ -27,6 +27,8 @@ public class InstructorPanel extends JPanel {
     private final MyCoursesPanel coursesPanel = new MyCoursesPanel(); // instructor-side MyCoursesPanel
     private final InstructorGradebookPanel gradebookPanel = new InstructorGradebookPanel();
     private final JPanel timetablePanel = new InstructorTimetablePanel();
+    private final JPanel notificationsPanel = new NotificationPanel();
+
     private final JPanel announcementsPanel = createPlaceholderPanel("📢 Announcements - Post or view messages");
     private final JPanel profilePanel = createPlaceholderPanel("👤 Profile - Manage personal information");
 
@@ -80,6 +82,8 @@ public class InstructorPanel extends JPanel {
         JButton btnCourses = makeNavButton("My Courses");
         JButton btnGradebook = makeNavButton("Gradebook");
         JButton btnTimetable = makeNavButton("Timetable");
+        JButton btnNotifications = makeNavButton("Notifications");
+
         JButton btnAnnouncements = makeNavButton("Announcements");
         JButton btnProfile = makeNavButton("Profile");
 
@@ -90,6 +94,8 @@ public class InstructorPanel extends JPanel {
         navButtonsContainer.add(Box.createVerticalStrut(8));
         navButtonsContainer.add(btnGradebook);
         navButtonsContainer.add(Box.createVerticalStrut(8));
+        navButtonsContainer.add(btnNotifications);  // <-- ADD THIS
+
         navButtonsContainer.add(btnTimetable);
         navButtonsContainer.add(Box.createVerticalStrut(8));
         navButtonsContainer.add(btnAnnouncements);
@@ -108,6 +114,8 @@ public class InstructorPanel extends JPanel {
         cards.add(wrapInPadding(coursesPanel), "courses");
         cards.add(wrapInPadding(gradebookPanel), "gradebook");
         cards.add(wrapInPadding(timetablePanel), "timetable");
+        cards.add(wrapInPadding(notificationsPanel), "notifications");
+
         cards.add(wrapInPadding(announcementsPanel), "announcements");
         cards.add(wrapInPadding(profilePanel), "profile");
 
@@ -126,6 +134,11 @@ public class InstructorPanel extends JPanel {
             showCard("gradebook");
         });
         btnTimetable.addActionListener(e -> { setNavActive(btnTimetable); showCard("timetable");});
+        btnNotifications.addActionListener(e -> {
+    setNavActive(btnNotifications);
+    showCard("notifications");
+});
+
         btnAnnouncements.addActionListener(e -> { setNavActive(btnAnnouncements); showCard("announcements");});
         btnProfile.addActionListener(e -> { setNavActive(btnProfile); showCard("profile");});
 
@@ -201,6 +214,12 @@ public class InstructorPanel extends JPanel {
         // also tell gradebook & courses panels
         gradebookPanel.setInstructorContext(instructorId, term);
         coursesPanel.loadForInstructor(instructorId, term);
+        try {
+    if (notificationsPanel instanceof NotificationPanel) {
+        ((NotificationPanel) notificationsPanel).setInstructorContext(instructorId, term);
+    }
+} catch (Exception ignored) {}
+
     }
 
     public void setInstructorContext(long instructorId, String username) {

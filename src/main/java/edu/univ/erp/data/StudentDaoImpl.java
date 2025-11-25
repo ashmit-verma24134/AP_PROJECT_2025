@@ -4,12 +4,17 @@ import edu.univ.erp.util.DBConnection;
 
 import java.sql.*;
 import java.util.*;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
 
 /**
  * Concrete DAO that uses the ERP schema.
+ * Updated: drop_deadline is returned as date-only string (yyyy-MM-dd or "N/A")
+ * and each current-course row includes drop_allowed boolean.
  */
 public class StudentDaoImpl implements StudentDao {
     private final Connection conn;
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     public StudentDaoImpl(Connection conn) {
         this.conn = conn;
@@ -137,34 +142,43 @@ public class StudentDaoImpl implements StudentDao {
         return out;
     }
 
+    /**
+     * Modified: includes s.drop_deadline returned as date-only (yyyy-MM-dd) or "N/A"
+     * and adds "drop_allowed" boolean.
+     */
     @Override
     public List<Map<String, Object>> getCurrentCourses(String studentId, String searchQuery) throws Exception {
         List<Map<String, Object>> list = new ArrayList<>();
         if (studentId == null) return list;
 
-        String sql = "SELECT c.course_id, COALESCE(c.code, '') AS course_code, COALESCE(c.title, '') AS course_name, " +
-                     "       COALESCE(i.full_name, '') AS instructor, s.day_time AS schedule, c.credits, e.status, s.section_id " +
-                     "FROM enrollments e " +
-                     "JOIN sections s ON e.section_id = s.section_id " +
-                     "JOIN courses c ON s.course_id = c.course_id " +
-                     "LEFT JOIN instructors i ON s.instructor_id = i.instructor_id " +
-                     "WHERE e.student_id = ? " +
-                     "  AND e.status IN ('ENROLLED','COMPLETED','WAITLISTED')";
+        StringBuilder sql = new StringBuilder(
+            "SELECT c.course_id, COALESCE(c.code, '') AS course_code, COALESCE(c.title, '') AS course_name, " +
+            "       COALESCE(i.full_name, '') AS instructor, s.day_time AS schedule, c.credits, e.status, s.section_id, s.drop_deadline " +
+            "FROM enrollments e " +
+            "JOIN sections s ON e.section_id = s.section_id " +
+            "JOIN courses c ON s.course_id = c.course_id " +
+            "LEFT JOIN instructors i ON s.instructor_id = i.instructor_id " +
+            "WHERE e.student_id = ? " +
+            "  AND e.status IN ('ENROLLED','COMPLETED','WAITLISTED')"
+        );
 
         if (searchQuery != null && !searchQuery.isEmpty()) {
-            sql += " AND (c.code LIKE ? OR c.title LIKE ? OR i.full_name LIKE ?)";
+            sql.append(" AND (c.code LIKE ? OR c.title LIKE ? OR i.full_name LIKE ?)");
         }
 
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            try { ps.setLong(1, Long.parseLong(studentId)); }
-            catch (NumberFormatException ex) { ps.setString(1, studentId); }
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            int paramIndex = 1;
+            // allow numeric or string id
+            try { ps.setLong(paramIndex++, Long.parseLong(studentId)); }
+            catch (NumberFormatException ex) { ps.setString(paramIndex++, studentId); }
 
             if (searchQuery != null && !searchQuery.isEmpty()) {
                 String q = "%" + searchQuery + "%";
-                ps.setString(2, q);
-                ps.setString(3, q);
-                ps.setString(4, q);
+                ps.setString(paramIndex++, q);
+                ps.setString(paramIndex++, q);
+                ps.setString(paramIndex++, q);
             }
+
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     Map<String,Object> row = new HashMap<>();
@@ -174,8 +188,24 @@ public class StudentDaoImpl implements StudentDao {
                     row.put("instructor", rs.getString("instructor"));
                     row.put("schedule", rs.getString("schedule"));
                     row.put("credits", rs.getDouble("credits"));
-                    row.put("status", rs.getString("status"));
-                    row.put("section_id", rs.getLong("section_id"));
+                    String status = rs.getString("status");
+                    row.put("status", status);
+                    long sectionId = rs.getLong("section_id");
+                    row.put("section_id", sectionId);
+
+                    // drop_deadline handling: date-only string and drop_allowed boolean
+                    Timestamp ddlTs = rs.getTimestamp("drop_deadline"); // may be null
+                    if (ddlTs == null) {
+                        row.put("drop_deadline", "N/A");
+                        row.put("drop_allowed", "ENROLLED".equalsIgnoreCase(status));
+                    } else {
+                        LocalDate ddlDate = ddlTs.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+                        row.put("drop_deadline", ddlDate.format(DATE_FMT));
+                        LocalDate today = LocalDate.now(ZoneId.systemDefault());
+                        boolean allowed = !today.isAfter(ddlDate) && "ENROLLED".equalsIgnoreCase(status);
+                        row.put("drop_allowed", allowed);
+                    }
+
                     list.add(row);
                 }
             }
@@ -229,36 +259,53 @@ public class StudentDaoImpl implements StudentDao {
         List<Map<String,Object>> out = new ArrayList<>();
         if (studentId == null) return out;
 
-        String sql =
-    "SELECT " +
-    "  c.title AS course_title, " +
-    "  t.room, " +
-    "  CONCAT( " +
-    "     CASE t.day_of_week " +
-    "         WHEN 1 THEN 'Mon' " +
-    "         WHEN 2 THEN 'Tue' " +
-    "         WHEN 3 THEN 'Wed' " +
-    "         WHEN 4 THEN 'Thu' " +
-    "         WHEN 5 THEN 'Fri' " +
-    "         WHEN 6 THEN 'Sat' " +
-    "         WHEN 7 THEN 'Sun' " +
-    "     END, ' ', " +
-    "     DATE_FORMAT(t.start_time, '%H:%i'), '-', " +
-    "     DATE_FORMAT(t.end_time, '%H:%i') " +
-    "  ) AS day_time " +
-    "FROM timetable t " +
-    "JOIN sections sc ON t.section_id = sc.section_id " +
-    "JOIN courses c ON sc.course_id = c.course_id " +
-    "JOIN enrollments e ON e.section_id = sc.section_id " +
-    "WHERE e.student_id = ? " +
-    "ORDER BY t.day_of_week, t.start_time " +
-    "LIMIT ?";
+        String preferredSql =
+            "SELECT " +
+            "  c.code AS course_code, " +
+            "  c.title AS course_title, " +
+            "  sc.section_id, " +
+            "  t.room, " +
+            "  CONCAT( " +
+            "     CASE t.day_of_week " +
+            "         WHEN 1 THEN 'Mon' " +
+            "         WHEN 2 THEN 'Tue' " +
+            "         WHEN 3 THEN 'Wed' " +
+            "         WHEN 4 THEN 'Thu' " +
+            "         WHEN 5 THEN 'Fri' " +
+            "         WHEN 6 THEN 'Sat' " +
+            "         WHEN 7 THEN 'Sun' " +
+            "     END, ' ', " +
+            "     DATE_FORMAT(t.start_time, '%H:%i'), '-', " +
+            "     DATE_FORMAT(t.end_time, '%H:%i') " +
+            "  ) AS day_time " +
+            "FROM timetable t " +
+            "JOIN sections sc ON t.section_id = sc.section_id " +
+            "JOIN courses c ON sc.course_id = c.course_id " +
+            "JOIN enrollments e ON e.section_id = sc.section_id " +
+            "WHERE e.student_id = ? " +
+            "ORDER BY t.day_of_week, t.start_time " +
+            "LIMIT ?";
 
+        String fallbackSql =
+            "SELECT " +
+            "  c.code AS course_code, " +
+            "  c.title AS course_title, " +
+            "  sc.section_id, " +
+            "  sc.room AS room, " +
+            "  sc.day_time AS day_time " +
+            "FROM sections sc " +
+            "JOIN courses c ON sc.course_id = c.course_id " +
+            "JOIN enrollments e ON e.section_id = sc.section_id " +
+            "WHERE e.student_id = ? " +
+            "ORDER BY sc.day_time " +
+            "LIMIT ?";
 
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        boolean usedFallback = false;
+        try (PreparedStatement ps = conn.prepareStatement(preferredSql)) {
             try { ps.setLong(1, Long.parseLong(studentId)); }
             catch (NumberFormatException ex) { ps.setString(1, studentId); }
             ps.setInt(2, limit);
+
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     Map<String,Object> r = new HashMap<>();
@@ -266,11 +313,37 @@ public class StudentDaoImpl implements StudentDao {
                     r.put("course_title", rs.getString("course_title"));
                     r.put("room", rs.getString("room"));
                     r.put("day_time", rs.getString("day_time"));
-                    r.put("section_id", rs.getLong("section_id"));
+                    r.put("section_id", rs.getObject("section_id") == null ? null : rs.getLong("section_id"));
                     out.add(r);
                 }
             }
+        } catch (SQLException ex) {
+            System.err.println("[StudentDaoImpl] preferred upcoming schedule query failed: " + ex.getMessage());
+            usedFallback = true;
         }
+
+        if (usedFallback) {
+            try (PreparedStatement ps = conn.prepareStatement(fallbackSql)) {
+                try { ps.setLong(1, Long.parseLong(studentId)); }
+                catch (NumberFormatException ex) { ps.setString(1, studentId); }
+                ps.setInt(2, limit);
+
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        Map<String,Object> r = new HashMap<>();
+                        r.put("course_code", rs.getString("course_code"));
+                        r.put("course_title", rs.getString("course_title"));
+                        r.put("room", rs.getString("room"));
+                        r.put("day_time", rs.getString("day_time"));
+                        r.put("section_id", rs.getObject("section_id") == null ? null : rs.getLong("section_id"));
+                        out.add(r);
+                    }
+                }
+            } catch (SQLException ex) {
+                System.err.println("[StudentDaoImpl] fallback upcoming schedule query failed: " + ex.getMessage());
+            }
+        }
+
         return out;
     }
 
@@ -335,147 +408,164 @@ public class StudentDaoImpl implements StudentDao {
         }
         return null;
     }
+
     @Override
-public Map<String, Object> getGradesGroupedBySemester(String studentId) throws Exception {
-    Map<String, Object> out = new LinkedHashMap<>();
-    if (studentId == null) return out;
+    public Map<String, Object> getGradesGroupedBySemester(String studentId) throws Exception {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (studentId == null) return out;
 
-    // Query returns one row per course enrollment with final grade and grade point and a textual term label.
-    final String sql =
-        "SELECT " +
-        "  CONCAT(t.term_name, '/', p.program_code, '/', d.dept_code, '/Semester ', s.semester_no) AS term_label, " +
-        "  e.enrollment_id, c.code AS course_code, c.title AS course_title, c.credits, g.final_grade, " +
-        "  CASE LOWER(g.final_grade) " +
-        "    WHEN 'a+' THEN 10 WHEN 'a' THEN 10 WHEN 'a-' THEN 9 " +
-        "    WHEN 'b+' THEN 8 WHEN 'b' THEN 7 WHEN 'b-' THEN 6 " +
-        "    WHEN 'c+' THEN 5 WHEN 'c' THEN 4 WHEN 'c-' THEN 3 " +
-        "    WHEN 'd' THEN 2 WHEN 'f' THEN 0 ELSE NULL END AS grade_point " +
-        "FROM enrollments e " +
-        "JOIN sections sec ON e.section_id = sec.section_id " +
-        "JOIN courses c ON sec.course_id = c.course_id " +
-        "LEFT JOIN grades g ON g.enrollment_id = e.enrollment_id AND g.component = 'Final' " +
-        "LEFT JOIN terms t ON sec.term_id = t.term_id " + // adjust names to your schema
-        "LEFT JOIN programs p ON t.program_id = p.program_id " +
-        "LEFT JOIN departments d ON p.dept_id = d.dept_id " +
-        "WHERE e.student_id = ? AND e.status IN ('ENROLLED','COMPLETED') " +
-        "ORDER BY term_label, c.code";
+        final String sql =
+            "SELECT " +
+            "  CONCAT(t.term_name, '/', p.program_code, '/', d.dept_code, '/Semester ', s.semester_no) AS term_label, " +
+            "  e.enrollment_id, c.code AS course_code, c.title AS course_title, c.credits, g.final_grade, " +
+            "  CASE LOWER(g.final_grade) " +
+            "    WHEN 'a+' THEN 10 WHEN 'a' THEN 10 WHEN 'a-' THEN 9 " +
+            "    WHEN 'b+' THEN 8 WHEN 'b' THEN 7 WHEN 'b-' THEN 6 " +
+            "    WHEN 'c+' THEN 5 WHEN 'c' THEN 4 WHEN 'c-' THEN 3 " +
+            "    WHEN 'd' THEN 2 WHEN 'f' THEN 0 ELSE NULL END AS grade_point " +
+            "FROM enrollments e " +
+            "JOIN sections sec ON e.section_id = sec.section_id " +
+            "JOIN courses c ON sec.course_id = c.course_id " +
+            "LEFT JOIN grades g ON g.enrollment_id = e.enrollment_id AND g.component = 'Final' " +
+            "LEFT JOIN terms t ON sec.term_id = t.term_id " +
+            "LEFT JOIN programs p ON t.program_id = p.program_id " +
+            "LEFT JOIN departments d ON p.dept_id = d.dept_id " +
+            "WHERE e.student_id = ? AND e.status IN ('ENROLLED','COMPLETED') " +
+            "ORDER BY term_label, c.code";
 
-    List<Map<String,Object>> rows = new ArrayList<>();
-    try (PreparedStatement ps = conn.prepareStatement(sql)) {
-        try { ps.setLong(1, Long.parseLong(studentId)); }
-        catch (NumberFormatException ex) { ps.setString(1, studentId); }
-        try (ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                Map<String,Object> r = new LinkedHashMap<>();
-                r.put("term_label", rs.getString("term_label"));
-                r.put("enrollment_id", rs.getLong("enrollment_id"));
-                r.put("course_code", rs.getString("course_code"));
-                r.put("course_title", rs.getString("course_title"));
-                r.put("credits", rs.getDouble("credits"));
-                r.put("final_grade", rs.getString("final_grade"));
-                Object gp = rs.getObject("grade_point");
-                r.put("grade_point", gp == null ? null : ((Number)gp).intValue());
-                rows.add(r);
-            }
-        }
-    }
-
-    // group by term_label
-    Map<String, List<Map<String,Object>>> grouped = new LinkedHashMap<>();
-    for (Map<String,Object> r : rows) {
-        String term = (String) r.get("term_label");
-        grouped.computeIfAbsent(term, k -> new ArrayList<>()).add(r);
-    }
-
-    List<Map<String,Object>> semesterList = new ArrayList<>();
-    double totalPoints = 0.0;
-    double totalCredits = 0.0;
-
-    for (Map.Entry<String,List<Map<String,Object>>> e : grouped.entrySet()) {
-        String term = e.getKey();
-        List<Map<String,Object>> courses = e.getValue();
-
-        double semPoints = 0.0;
-        double semCredits = 0.0;
-        for (Map<String,Object> c : courses) {
-            Number gp = (Number) c.get("grade_point");
-            Number cr = (Number) c.get("credits");
-            if (gp != null && cr != null) {
-                semPoints += gp.doubleValue() * cr.doubleValue();
-                semCredits += cr.doubleValue();
+        List<Map<String,Object>> rows = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            try { ps.setLong(1, Long.parseLong(studentId)); }
+            catch (NumberFormatException ex) { ps.setString(1, studentId); }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String,Object> r = new LinkedHashMap<>();
+                    r.put("term_label", rs.getString("term_label"));
+                    r.put("enrollment_id", rs.getLong("enrollment_id"));
+                    r.put("course_code", rs.getString("course_code"));
+                    r.put("course_title", rs.getString("course_title"));
+                    r.put("credits", rs.getDouble("credits"));
+                    r.put("final_grade", rs.getString("final_grade"));
+                    Object gp = rs.getObject("grade_point");
+                    r.put("grade_point", gp == null ? null : ((Number)gp).intValue());
+                    rows.add(r);
+                }
             }
         }
 
-        Double sgpa = null;
-        if (semCredits > 0.0) {
-            sgpa = Math.round((semPoints / semCredits) * 100.0) / 100.0;
-            totalPoints += semPoints;
-            totalCredits += semCredits;
+        Map<String, List<Map<String,Object>>> grouped = new LinkedHashMap<>();
+        for (Map<String,Object> r : rows) {
+            String term = (String) r.get("term_label");
+            grouped.computeIfAbsent(term, k -> new ArrayList<>()).add(r);
         }
 
-        Map<String,Object> semMap = new LinkedHashMap<>();
-        semMap.put("term_label", term);
-        semMap.put("courses", courses);
-        semMap.put("sgpa", sgpa);
-        semesterList.add(semMap);
+        List<Map<String,Object>> semesterList = new ArrayList<>();
+        double totalPoints = 0.0;
+        double totalCredits = 0.0;
+
+        for (Map.Entry<String,List<Map<String,Object>>> e : grouped.entrySet()) {
+            String term = e.getKey();
+            List<Map<String,Object>> courses = e.getValue();
+
+            double semPoints = 0.0;
+            double semCredits = 0.0;
+            for (Map<String,Object> c : courses) {
+                Number gp = (Number) c.get("grade_point");
+                Number cr = (Number) c.get("credits");
+                if (gp != null && cr != null) {
+                    semPoints += gp.doubleValue() * cr.doubleValue();
+                    semCredits += cr.doubleValue();
+                }
+            }
+
+            Double sgpa = null;
+            if (semCredits > 0.0) {
+                sgpa = Math.round((semPoints / semCredits) * 100.0) / 100.0;
+                totalPoints += semPoints;
+                totalCredits += semCredits;
+            }
+
+            Map<String,Object> semMap = new LinkedHashMap<>();
+            semMap.put("term_label", term);
+            semMap.put("courses", courses);
+            semMap.put("sgpa", sgpa);
+            semesterList.add(semMap);
+        }
+
+        Double cgpa = null;
+        if (totalCredits > 0.0) cgpa = Math.round((totalPoints / totalCredits) * 100.0) / 100.0;
+
+        out.put("semesters", semesterList);
+        out.put("cgpa", cgpa);
+        return out;
     }
-
-    Double cgpa = null;
-    if (totalCredits > 0.0) cgpa = Math.round((totalPoints / totalCredits) * 100.0) / 100.0;
-
-    out.put("semesters", semesterList);
-    out.put("cgpa", cgpa);
-    return out;
-}
-
 
     /**
-     * IMPLEMENTATION: get grade details for UI grades panel
-     * returns rows with keys:
-     *  enrollment_id, course_code, course_name, component_name, score, max_score, weight, final_grade
+     * get grade details for UI grades panel
      */
-@Override
-public List<Map<String,Object>> getGradeDetails(String studentId) throws Exception {
-    List<Map<String,Object>> out = new ArrayList<>();
-    if (studentId == null) return out;
+    @Override
+    public List<Map<String,Object>> getGradeDetails(String studentId) throws Exception {
+        List<Map<String,Object>> out = new ArrayList<>();
+        if (studentId == null) return out;
 
-    final String sql =
-        "SELECT e.enrollment_id, c.code AS course_code, c.title AS course_name, " +
-        "       g.component AS component_name, g.score, g.max_score, g.weight, g.final_grade " +
-        "FROM enrollments e " +
-        "JOIN sections s ON e.section_id = s.section_id " +
-        "JOIN courses c ON s.course_id = c.course_id " +
-        "LEFT JOIN grades g ON g.enrollment_id = e.enrollment_id " +
-        "WHERE e.student_id = ? " +
-        "  AND e.status IN ('ENROLLED','COMPLETED') " +
-        "ORDER BY c.code, g.grade_id";
+        final String sql =
+            "SELECT e.enrollment_id, c.code AS course_code, c.title AS course_name, " +
+            "       g.component AS component_name, g.score, g.max_score, g.weight, g.final_grade " +
+            "FROM enrollments e " +
+            "JOIN sections s ON e.section_id = s.section_id " +
+            "JOIN courses c ON s.course_id = c.course_id " +
+            "LEFT JOIN grades g ON g.enrollment_id = e.enrollment_id " +
+            "WHERE e.student_id = ? " +
+            "  AND e.status IN ('ENROLLED','COMPLETED') " +
+            "ORDER BY c.code, g.grade_id";
 
-    try (PreparedStatement ps = conn.prepareStatement(sql)) {
-        // allow numeric or string studentId
-        try { ps.setLong(1, Long.parseLong(studentId)); }
-        catch (NumberFormatException ex) { ps.setString(1, studentId); }
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            try { ps.setLong(1, Long.parseLong(studentId)); }
+            catch (NumberFormatException ex) { ps.setString(1, studentId); }
 
-        try (ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                Map<String,Object> row = new LinkedHashMap<>();
-                row.put("enrollment_id", rs.getLong("enrollment_id"));
-                row.put("course_code", rs.getString("course_code"));
-                row.put("course_name", rs.getString("course_name"));
-                row.put("component_name", rs.getString("component_name")); // may be null
-                Object scoreObj = rs.getObject("score");
-                row.put("score", scoreObj == null ? null : rs.getDouble("score"));
-                Object maxObj = rs.getObject("max_score");
-                row.put("max_score", maxObj == null ? null : rs.getDouble("max_score"));
-                Object wtObj = rs.getObject("weight");
-                row.put("weight", wtObj == null ? null : rs.getInt("weight"));
-                row.put("final_grade", rs.getString("final_grade"));
-                out.add(row);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String,Object> row = new LinkedHashMap<>();
+                    row.put("enrollment_id", rs.getLong("enrollment_id"));
+                    row.put("course_code", rs.getString("course_code"));
+                    row.put("course_name", rs.getString("course_name"));
+                    row.put("component_name", rs.getString("component_name")); // may be null
+                    Object scoreObj = rs.getObject("score");
+                    row.put("score", scoreObj == null ? null : rs.getDouble("score"));
+                    Object maxObj = rs.getObject("max_score");
+                    row.put("max_score", maxObj == null ? null : rs.getDouble("max_score"));
+                    Object wtObj = rs.getObject("weight");
+                    row.put("weight", wtObj == null ? null : rs.getInt("weight"));
+                    row.put("final_grade", rs.getString("final_grade"));
+                    out.add(row);
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Helper to check if student can drop a section: must be ENROLLED and today <= drop_deadline (date-only)
+     */
+    public boolean canDropEnrollment(String studentId, long sectionId) throws SQLException {
+        final String q = "SELECT e.status AS status, s.drop_deadline AS drop_deadline " +
+                         "FROM enrollments e JOIN sections s ON e.section_id = s.section_id " +
+                         "WHERE e.student_id = ? AND e.section_id = ? LIMIT 1";
+        try (PreparedStatement ps = conn.prepareStatement(q)) {
+            try { ps.setLong(1, Long.parseLong(studentId)); }
+            catch (NumberFormatException ex) { ps.setString(1, studentId); }
+            ps.setLong(2, sectionId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return false;
+                String status = rs.getString("status");
+                if (!"ENROLLED".equalsIgnoreCase(status)) return false;
+                Timestamp ddl = rs.getTimestamp("drop_deadline");
+                if (ddl == null) return true;
+                LocalDate ddlDate = ddl.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+                LocalDate today = LocalDate.now(ZoneId.systemDefault());
+                return !today.isAfter(ddlDate);
             }
         }
     }
-    return out;
-}
-
-
-
 }

@@ -7,7 +7,6 @@ import edu.univ.erp.service.RegistrationEventBus;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.io.*;
@@ -49,12 +48,13 @@ public class InstructorGradebookPanel extends JPanel {
     private final GradeTableModel tableModel = new GradeTableModel();
     private final JTable table = new JTable(tableModel);
 
+    // current loaded data
     private long currentSectionId = -1;
     private List<ComponentDef> components = new ArrayList<>();
     private List<EnrollmentRow> enrollmentRows = new ArrayList<>();
     Double weight = null;
 Double maxScore = null;
-    private boolean editable = false;
+    private boolean editable = false; // whether current instructor can edit this section
 
     private static final DecimalFormat DF = new DecimalFormat("#.##");
 
@@ -62,6 +62,7 @@ Double maxScore = null;
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
+        // Top controls
         JPanel top = new JPanel(new BorderLayout());
         top.setOpaque(false);
         JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 6));
@@ -85,11 +86,13 @@ Double maxScore = null;
         top.add(right, BorderLayout.EAST);
         add(top, BorderLayout.NORTH);
 
+        // Table area
         table.setFillsViewportHeight(true);
         JScrollPane sp = new JScrollPane(table);
         sp.setBorder(BorderFactory.createCompoundBorder(new EmptyBorder(8, 8, 8, 8), sp.getBorder()));
         add(sp, BorderLayout.CENTER);
 
+        // Bottom: status + stats
         JPanel bottom = new JPanel(new BorderLayout());
         bottom.setOpaque(false);
         statusLabel.setBorder(new EmptyBorder(6, 8, 6, 8));
@@ -98,6 +101,7 @@ Double maxScore = null;
         bottom.add(statsLabel, BorderLayout.EAST);
         add(bottom, BorderLayout.SOUTH);
 
+        // Button actions
         btnRefreshSections.addActionListener(e -> loadSectionsForInstructorAsync());
         btnLoad.addActionListener(e -> {
             SectionItem si = (SectionItem) sectionCombo.getSelectedItem();
@@ -114,10 +118,14 @@ Double maxScore = null;
         btnImport.addActionListener(e -> importCsvAction());
         btnAddComponent.addActionListener(e -> handleAddComponent());
 
+        // initial visual hints
         table.setRowHeight(28);
         table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+
+        // allow editing only on score columns; model will enforce
         table.setModel(tableModel);
 
+        // initial load (if instructorId already set by caller)
         SwingUtilities.invokeLater(this::loadSectionsForInstructorAsync);
     }
 
@@ -144,6 +152,7 @@ Double maxScore = null;
         btnAddComponent.setEnabled(e);
     }
 
+    // ---- Load sections taught by instructor (async) ----
     private void loadSectionsForInstructorAsync() {
         setStatus("Loading sections...");
         sectionCombo.removeAllItems();
@@ -181,6 +190,7 @@ Double maxScore = null;
                             String label = String.format("%s - %s (%s %d, sem %s)",
                                     code,
                                     title,
+                                   
                                     term == null ? "" : term,
                                     year,
                                     semStr == null ? "" : semStr);
@@ -188,9 +198,6 @@ Double maxScore = null;
                             list.add(new SectionItem(id, label));
                         }
                     }
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                    throw ex;
                 }
                 return list;
             }
@@ -210,6 +217,7 @@ Double maxScore = null;
         }.execute();
     }
 
+    // ---- Load a single section: components + enrollments + existing scores ----
     private void loadSectionAsync(long sectionId) {
         setStatus("Loading section data...");
         new SwingWorker<Void, Void>() {
@@ -367,6 +375,7 @@ Double maxScore = null;
         }
     }
 
+    // ---- Compute finals in-memory (UI) using component weights ----
     private void computeFinalsInMemory() {
         for (EnrollmentRow r : enrollmentRows) {
             double total = 0.0;
@@ -384,9 +393,20 @@ Double maxScore = null;
         }
     }
 
+    // ---- Save all scores to DB (insert/update) ----
     private void saveAllScoresAsync() {
+        if (DBConnection.isMaintenanceMode()) {
+    JOptionPane.showMessageDialog(this,
+        "Maintenance Mode is ON. Changes are disabled.",
+        "Maintenance Mode", JOptionPane.WARNING_MESSAGE);
+    return;
+}
         if (!editable) {
             JOptionPane.showMessageDialog(this, "You are not permitted to modify this section.", "Not allowed", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (currentSectionId <= 0) {
+            setStatus("No section loaded.");
             return;
         }
         setStatus("Saving scores...");
@@ -567,9 +587,14 @@ final Double fMaxScore = maxScore;
 
     private double parseComputedFinal(String s) {
         if (s == null) return Double.NaN;
-        try { return Double.parseDouble(s); } catch (Exception ex) { return Double.NaN; }
+        try {
+            return Double.parseDouble(s);
+        } catch (Exception ex) {
+            return Double.NaN;
+        }
     }
 
+    // ---- Stats ----
     private void updateStats() {
         List<Double> finals = enrollmentRows.stream()
                 .map(r -> {
@@ -598,6 +623,7 @@ final Double fMaxScore = maxScore;
         statsLabel.setText(s);
     }
 
+    // ---- CSV Export ----
     private void exportCsvAction() {
         if (currentSectionId <= 0) {
             JOptionPane.showMessageDialog(this, "Load a section first.", "No section", JOptionPane.INFORMATION_MESSAGE);
@@ -609,6 +635,7 @@ final Double fMaxScore = maxScore;
         if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
         File f = fc.getSelectedFile();
         try (PrintWriter pw = new PrintWriter(new FileWriter(f))) {
+            // header
             List<String> headers = new ArrayList<>();
             headers.add("enrollment_id");
             headers.add("student_id");
@@ -617,6 +644,7 @@ final Double fMaxScore = maxScore;
             for (ComponentDef c : components) headers.add(c.name + " (id:" + c.componentId + ")");
             headers.add("computed_final");
             pw.println(String.join(",", headers));
+            // rows
             for (EnrollmentRow r : enrollmentRows) {
                 List<String> cols = new ArrayList<>();
                 cols.add(String.valueOf(r.enrollmentId));
@@ -637,6 +665,7 @@ final Double fMaxScore = maxScore;
         }
     }
 
+    // ---- CSV Import ----
     private void importCsvAction() {
         if (!editable) {
             JOptionPane.showMessageDialog(this, "You are not permitted to modify this section.", "Not allowed", JOptionPane.WARNING_MESSAGE);
@@ -648,7 +677,7 @@ final Double fMaxScore = maxScore;
         }
         JFileChooser fc = new JFileChooser();
         fc.setDialogTitle("Import grades from CSV");
-        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
+        fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CSV files", "csv"));
         if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
         File f = fc.getSelectedFile();
 
@@ -690,7 +719,7 @@ final Double fMaxScore = maxScore;
                             for (EnrollmentRow er : enrollmentRows) if (er.enrollmentId == enrollmentId) { target = er; break; }
                         } else if (rollCol >= 0) {
                             String roll = row[rollCol].trim();
-                            for (EnrollmentRow er : enrollmentRows) if (er.rollNo.equalsIgnoreCase(roll)) { target = er; break; }
+                            for (EnrollmentRow er : enrollmentRows) if (er.rollNo != null && er.rollNo.equalsIgnoreCase(roll)) { target = er; break; }
                         }
                         if (target == null) continue;
                         boolean anySet = false;
@@ -720,6 +749,7 @@ final Double fMaxScore = maxScore;
                 try {
                     get();
                     tableModel.fireTableDataChanged();
+                    updateStats();
                 } catch (Exception ex) {
                     ex.printStackTrace();
                     setStatus("Failed import: " + ex.getMessage());
@@ -775,18 +805,34 @@ final Double fMaxScore = maxScore;
         }
     }
 
+    // Table model that dynamically adapts to current components
     private class GradeTableModel extends AbstractTableModel {
         private List<ComponentDef> comps = new ArrayList<>();
         private List<EnrollmentRow> rows = new ArrayList<>();
         private boolean editable = false;
 
-        void setEditable(boolean e) { this.editable = e; }
-        void setData(List<ComponentDef> comps, List<EnrollmentRow> rows) { this.comps = comps == null ? new ArrayList<>() : comps; this.rows = rows == null ? new ArrayList<>() : rows; }
+        void setEditable(boolean e) { 
+            if (DBConnection.isMaintenanceMode()) {
+    e = false;  // force disable
+}
+            this.editable = e; }
+        void setData(List<ComponentDef> comps, List<EnrollmentRow> rows) {
+            this.comps = comps == null ? new ArrayList<>() : comps;
+            this.rows = rows == null ? new ArrayList<>() : rows;
+        }
 
-        @Override public int getRowCount() { return rows.size(); }
-        @Override public int getColumnCount() { return 2 + comps.size() + 1; }
 
-        @Override public String getColumnName(int column) {
+        @Override
+        public int getRowCount() { return rows.size(); }
+
+        @Override
+        public int getColumnCount() {
+            return 2 + comps.size() + 1;
+        }
+
+
+        @Override
+        public String getColumnName(int column) {
             if (column == 0) return "Roll No";
             if (column == 1) return "Student Name";
             if (column >= 2 && column < 2 + comps.size()) {
@@ -796,16 +842,25 @@ final Double fMaxScore = maxScore;
             return "Final";
         }
 
-        @Override public Class<?> getColumnClass(int columnIndex) {
+
+        @Override
+        public Class<?> getColumnClass(int columnIndex) {
             if (columnIndex >= 2 && columnIndex < 2 + comps.size()) return Double.class;
             if (columnIndex == 0) return String.class;
             if (columnIndex == 1) return String.class;
             return String.class;
         }
 
-        @Override public boolean isCellEditable(int rowIndex, int columnIndex) { if (!editable) return false; return (columnIndex >= 2 && columnIndex < 2 + comps.size()); }
 
-        @Override public Object getValueAt(int rowIndex, int columnIndex) {
+        @Override
+        public boolean isCellEditable(int rowIndex, int columnIndex) {
+            if (!editable) return false;
+            return (columnIndex >= 2 && columnIndex < 2 + comps.size());
+        }
+
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
             EnrollmentRow r = rows.get(rowIndex);
             if (columnIndex == 0) return r.rollNo;
             if (columnIndex == 1) return r.fullName;
@@ -817,17 +872,23 @@ final Double fMaxScore = maxScore;
             return r.computedFinal == null ? "" : r.computedFinal;
         }
 
-        @Override public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+
+        @Override
+        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+            if (DBConnection.isMaintenanceMode()) return;
             if (!editable) return;
             if (!(columnIndex >= 2 && columnIndex < 2 + comps.size())) return;
             EnrollmentRow r = rows.get(rowIndex);
             ComponentDef c = comps.get(columnIndex - 2);
-            if (aValue == null) { r.scores.remove(c.componentId); }
-            else {
+            if (aValue == null) {
+                r.scores.remove(c.componentId);
+            } else {
                 try {
                     double d = Double.parseDouble(String.valueOf(aValue));
                     r.scores.put(c.componentId, d);
-                } catch (Exception ex) { }
+                } catch (Exception ex) {
+                    // ignore invalid input
+                }
             }
             double total = 0.0, weightSum = 0.0;
             for (ComponentDef cd : comps) {

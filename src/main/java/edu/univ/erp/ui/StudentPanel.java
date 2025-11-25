@@ -19,28 +19,25 @@ public class StudentPanel extends JPanel {
 
     private final MainFrame mainFrame;
 
-    private final JLabel maintenanceBanner = new JLabel();
+    // New banner component
+    private final MaintenanceBanner maintenanceBanner = new MaintenanceBanner();
 
-    // Sidebar navigation containers
     private final JPanel navPanel = new JPanel(null);
     private final JPanel navButtonsContainer = new JPanel();
-    private String studentUsername = "Student"; // Add as class field
-private JLabel welcomeLabel; // Add as class field
 
-    // CardLayout container
     private final JPanel cards = new JPanel(new CardLayout());
 
-    // PANELS
     private final DashboardPanel dashboardPanel = new DashboardPanel();
     private final CatalogPanel catalogPanel = new CatalogPanel();
     private final TimetablePanel timetablePanel = new TimetablePanel();
     private final TranscriptPanel transcriptPanel = new TranscriptPanel();
-
     private final SemesterGradesPanel gradesPanel = new SemesterGradesPanel();
-
     private final MyCoursesPanel myCoursesPanel = new MyCoursesPanel();
 
+    private JLabel welcomeLabel;
+    private String studentUsername = "Student";
     private String studentId;
+
     private javax.swing.Timer pollTimer;
 
     public StudentPanel(MainFrame mainFrame) {
@@ -48,45 +45,42 @@ private JLabel welcomeLabel; // Add as class field
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
-        // ---------- HEADER ----------
+        // ------------ HEADER ------------
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
         header.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
 
-        //JLabel title = new JLabel("Student Portal");
-        //title.setFont(Theme.TITLE_FONT);
-        //header.add(title, BorderLayout.WEST);
-
         JPanel leftHeader = new JPanel();
-leftHeader.setLayout(new BoxLayout(leftHeader, BoxLayout.Y_AXIS));
-leftHeader.setOpaque(false);
+        leftHeader.setLayout(new BoxLayout(leftHeader, BoxLayout.Y_AXIS));
+        leftHeader.setOpaque(false);
 
-JLabel title = new JLabel("Student Portal");
-title.setFont(Theme.TITLE_FONT);
+        JLabel title = new JLabel("Student Portal");
+        title.setFont(Theme.TITLE_FONT);
 
-welcomeLabel = new JLabel("Welcome, " + studentUsername);
-welcomeLabel.setFont(Theme.BODY_FONT);
+        welcomeLabel = new JLabel("Welcome, " + studentUsername);
+        welcomeLabel.setFont(Theme.BODY_FONT);
 
-leftHeader.add(title);
-leftHeader.add(welcomeLabel);
-header.add(leftHeader, BorderLayout.WEST);
+        leftHeader.add(title);
+        leftHeader.add(welcomeLabel);
+        header.add(leftHeader, BorderLayout.WEST);
 
         JButton logout = new JButton("Logout");
-        logout.addActionListener(e -> mainFrame.showCard("login"));
+        logout.addActionListener(e -> {
+            stopPolling();
+            mainFrame.showCard("login");
+        });
         header.add(logout, BorderLayout.EAST);
 
-        maintenanceBanner.setOpaque(true);
-        maintenanceBanner.setBackground(Theme.WARNING);
-        maintenanceBanner.setHorizontalAlignment(SwingConstants.CENTER);
         maintenanceBanner.setVisible(false);
 
         JPanel topWrap = new JPanel(new BorderLayout());
         topWrap.setOpaque(false);
         topWrap.add(header, BorderLayout.NORTH);
         topWrap.add(maintenanceBanner, BorderLayout.SOUTH);
+
         add(topWrap, BorderLayout.NORTH);
 
-        // ---------- SIDEBAR ----------
+        // ------------ SIDEBAR ------------
         navPanel.setPreferredSize(new Dimension(Theme.SIDEBAR_WIDTH, 0));
         navPanel.setBackground(Theme.SIDEBAR_BG);
 
@@ -94,13 +88,12 @@ header.add(leftHeader, BorderLayout.WEST);
         navButtonsContainer.setOpaque(false);
         navButtonsContainer.setBounds(0, 16, Theme.SIDEBAR_WIDTH, 600);
 
-        JButton btnDashboard   = makeNavButton("Dashboard");
-        JButton btnCatalog     = makeNavButton("Course Catalog");
-        JButton btnTimetable   = makeNavButton("My Timetable");
-        JButton btnTranscript  = makeNavButton("Transcript");
-        JButton btnMyCourses   = makeNavButton("My Courses");
-        JButton btnGrades      = makeNavButton("My Grades");
-  
+        JButton btnDashboard = makeNavButton("Dashboard");
+        JButton btnCatalog = makeNavButton("Course Catalog");
+        JButton btnTimetable = makeNavButton("My Timetable");
+        JButton btnTranscript = makeNavButton("Transcript");
+        JButton btnMyCourses = makeNavButton("My Courses");
+        JButton btnGrades = makeNavButton("My Grades");
 
         navButtonsContainer.add(Box.createVerticalStrut(12));
         navButtonsContainer.add(btnDashboard);
@@ -114,14 +107,12 @@ header.add(leftHeader, BorderLayout.WEST);
         navButtonsContainer.add(btnMyCourses);
         navButtonsContainer.add(Box.createVerticalStrut(8));
         navButtonsContainer.add(btnGrades);
-        navButtonsContainer.add(Box.createVerticalStrut(8));
         navButtonsContainer.add(Box.createVerticalGlue());
 
         navPanel.add(navButtonsContainer);
         add(navPanel, BorderLayout.WEST);
 
-        // ---------- CARDLAYOUT AREA ----------
-        cards.setBackground(Theme.BACKGROUND);
+        // ------------ CARD CONTENT ------------
         cards.add(wrapInPadding(dashboardPanel), "dashboard");
         cards.add(wrapInPadding(catalogPanel), "catalog");
         cards.add(wrapInPadding(timetablePanel), "timetable");
@@ -131,7 +122,7 @@ header.add(leftHeader, BorderLayout.WEST);
 
         add(cards, BorderLayout.CENTER);
 
-        // ---------- SIDEBAR BUTTON ACTIONS ----------
+        // ------------ NAV ACTIONS ------------
         btnDashboard.addActionListener(e -> { setNavActive(btnDashboard); showCard("dashboard"); });
         btnCatalog.addActionListener(e -> { setNavActive(btnCatalog); showCard("catalog"); });
         btnTimetable.addActionListener(e -> { setNavActive(btnTimetable); showCard("timetable"); });
@@ -139,27 +130,24 @@ header.add(leftHeader, BorderLayout.WEST);
         btnMyCourses.addActionListener(e -> { setNavActive(btnMyCourses); showCard("mycourses"); });
         btnGrades.addActionListener(e -> { setNavActive(btnGrades); showCard("grades"); });
 
-        // ---------- REGISTRATION LISTENER WIRING ----------
+        // ---------- REGISTRATION LISTENER ----------
         catalogPanel.setRegistrationListener(() -> {
-
             myCoursesPanel.onRegistrationChanged();
             timetablePanel.reloadForStudent();
             transcriptPanel.reloadForStudent();
             dashboardPanel.onRegistrationChanged();
         });
 
-        // Dashboard starts active
         SwingUtilities.invokeLater(() -> {
             setNavActive(btnDashboard);
             showCard("dashboard");
         });
 
-        // ---------- MAINTENANCE POLLING ----------
+        // ------------ MAINTENANCE POLLING ------------
         pollTimer = new javax.swing.Timer(10_000, e -> refreshMaintenance());
         pollTimer.start();
     }
 
-    // ===== Helper for Sidebar Button =====
     private JButton makeNavButton(String text) {
         JButton b = new JButton(text);
         b.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -177,7 +165,7 @@ header.add(leftHeader, BorderLayout.WEST);
         for (Component c : navButtonsContainer.getComponents()) {
             if (c instanceof AbstractButton) {
                 c.setBackground(Theme.SIDEBAR_BG);
-                ((AbstractButton) c).setForeground(Color.WHITE);
+                ((AbstractButton)c).setForeground(Color.WHITE);
             }
         }
         active.setBackground(Theme.SIDEBAR_ACTIVE);
@@ -200,49 +188,50 @@ header.add(leftHeader, BorderLayout.WEST);
         return p;
     }
 
-    // ---------- LOGIN PROPAGATION ----------
+    // ================= LOGIN =================
     public void setStudentId(String studentId) {
-    this.studentId = studentId;
-    
-    // Try to get actual name from DB
-    try (Connection conn = DBConnection.getErpConnection()) {
-        String q = "SELECT s.full_name, s.roll_no, u.username " +
-                   "FROM students s LEFT JOIN auth_db.users u ON s.user_id = u.id WHERE s.student_id = ? LIMIT 1";
-        try (PreparedStatement ps = conn.prepareStatement(q)) {
-            try {
+        this.studentId = studentId;
+
+        try (Connection conn = DBConnection.getErpConnection()) {
+            String q = "SELECT s.full_name, s.roll_no, u.username "
+                    + "FROM students s LEFT JOIN auth_db.users u ON s.user_id = u.id "
+                    + "WHERE s.student_id = ? LIMIT 1";
+
+            try (PreparedStatement ps = conn.prepareStatement(q)) {
                 ps.setLong(1, Long.parseLong(studentId));
-            } catch (NumberFormatException e) {
-                ps.setString(1, studentId);
-            }
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    String uname = rs.getString("username");
-                    String full = rs.getString("full_name");
-                    String roll = rs.getString("roll_no");
-                    if (uname != null && !uname.isEmpty()) studentUsername = uname;
-                    else if (full != null && !full.isEmpty()) studentUsername = full;
-                    else if (roll != null && !roll.isEmpty()) studentUsername = roll;
-                    
-                    welcomeLabel.setText("Welcome, " + studentUsername);
+
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        String uname = rs.getString("username");
+                        String full = rs.getString("full_name");
+                        String roll = rs.getString("roll_no");
+
+                        if (uname != null && !uname.isEmpty()) studentUsername = uname;
+                        else if (full != null && !full.isEmpty()) studentUsername = full;
+                        else if (roll != null && !roll.isEmpty()) studentUsername = roll;
+
+                        welcomeLabel.setText("Welcome, " + studentUsername);
+                    }
                 }
             }
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
         }
-    } catch (Exception ex) {
-        ex.printStackTrace();
+
+        dashboardPanel.setStudentId(studentId);
+        catalogPanel.setStudentId(studentId);
+        timetablePanel.setStudentId(studentId);
+        transcriptPanel.setStudentId(studentId);
+        gradesPanel.setStudentId(studentId);
+        myCoursesPanel.setStudentId(studentId);
+
+        catalogPanel.reloadFromDb(null);
+        timetablePanel.reloadForStudent();
+        transcriptPanel.reloadForStudent();
     }
 
-    dashboardPanel.setStudentId(studentId);
-    catalogPanel.setStudentId(studentId);
-    timetablePanel.setStudentId(studentId);
-    transcriptPanel.setStudentId(studentId);
-    gradesPanel.setStudentId(studentId);
-    myCoursesPanel.setStudentId(studentId);
-
-    catalogPanel.reloadFromDb(null);
-    timetablePanel.reloadForStudent();
-    transcriptPanel.reloadForStudent();
-}
-    // ---------- Maintenance Banner ----------
+    // ================= MAINTENANCE =================
     public void refreshMaintenance() {
         new SwingWorker<Boolean, Void>() {
             @Override
@@ -259,14 +248,17 @@ header.add(leftHeader, BorderLayout.WEST);
             protected void done() {
                 try {
                     boolean maintenance = get();
+
                     maintenanceBanner.setVisible(maintenance);
 
                     catalogPanel.setActionsEnabled(!maintenance);
                     timetablePanel.setActionsEnabled(!maintenance);
                     transcriptPanel.setActionsEnabled(!maintenance);
                     dashboardPanel.setActionsEnabled(!maintenance);
+
                     gradesPanel.setEnabled(!maintenance);
-                    myCoursesPanel.setEnabled(!maintenance);
+                    myCoursesPanel.setActionsEnabled(!maintenance);
+
                 } catch (Exception ignore) {}
             }
         }.execute();

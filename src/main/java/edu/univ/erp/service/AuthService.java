@@ -4,6 +4,7 @@ import edu.univ.erp.util.DBConnection;
 import org.mindrot.jbcrypt.BCrypt;
 
 import java.sql.*;
+import java.util.Objects;
 
 /**
  * AuthService - authentication helpers for your schema (auth_db.users).
@@ -13,18 +14,17 @@ import java.sql.*;
  * - getStudentIdByRoll / getStudentIdByUsername : student lookup helpers
  * - getInstructorIdByUsername : instructor lookup helper
  * - getLockInfo : returns a helpful locked/failed message for UI
- *
- * NOTE: Uses DBConnection.getAuthConnection() for auth_db.users and DBConnection.getErpConnection()
- * for ERP tables (instructors, students).
  */
 public class AuthService {
 
     private static final int MAX_FAILED = 5;       // attempts before lock
-    private static final int LOCK_MINUTES = 15;    // lock duration in minutes
+    private static final int LOCK_MINUTES = 15;    // lock duration
 
     /**
      * Authenticate user and ensure role matches requiredRole.
      * Returns role_id on success (1/2/3), -1 on failure.
+     *
+     * Note: uses DBConnection.getAuthConnection() (your auth DB).
      */
     public static int authenticateByRole(String username, String password, int requiredRole) {
         final String SELECT_SQL =
@@ -34,6 +34,8 @@ public class AuthService {
                 "UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login = NOW() WHERE user_id = ?";
         final String UPDATE_FAIL_SQL =
                 "UPDATE users SET failed_attempts = ?, locked_until = ? WHERE user_id = ?";
+
+        if (username == null || username.isBlank() || password == null) return -1;
 
         try (Connection conn = DBConnection.getAuthConnection();
              PreparedStatement ps = conn.prepareStatement(SELECT_SQL)) {
@@ -51,7 +53,7 @@ public class AuthService {
                 Timestamp lockedUntil = rs.getTimestamp("locked_until");
 
                 // status check
-                if (!"ACTIVE".equalsIgnoreCase(status)) return -1;
+                if (!"ACTIVE".equalsIgnoreCase(String.valueOf(status))) return -1;
 
                 // lock check
                 if (lockedUntil != null && lockedUntil.after(new Timestamp(System.currentTimeMillis()))) {
@@ -110,6 +112,8 @@ public class AuthService {
         final String SELECT_SQL = "SELECT user_id, pass_hash FROM users WHERE username = ? LIMIT 1";
         final String UPDATE_SQL = "UPDATE users SET pass_hash = ?, updated_at = NOW() WHERE user_id = ?";
 
+        if (username == null || username.isBlank() || oldPassword == null || newPassword == null) return false;
+
         try (Connection conn = DBConnection.getAuthConnection();
              PreparedStatement ps = conn.prepareStatement(SELECT_SQL)) {
 
@@ -141,6 +145,7 @@ public class AuthService {
      */
     public static String getLockInfo(String username) {
         final String SQL = "SELECT failed_attempts, locked_until FROM users WHERE username = ? LIMIT 1";
+        if (username == null || username.isBlank()) return null;
         try (Connection conn = DBConnection.getAuthConnection();
              PreparedStatement ps = conn.prepareStatement(SQL)) {
             ps.setString(1, username);
@@ -164,6 +169,7 @@ public class AuthService {
 
     public static Long getStudentIdByRoll(String rollNo) {
         final String SQL = "SELECT student_id FROM students WHERE roll_no = ? LIMIT 1";
+        if (rollNo == null || rollNo.isBlank()) return null;
         try (Connection conn = DBConnection.getErpConnection();
              PreparedStatement ps = conn.prepareStatement(SQL)) {
             ps.setString(1, rollNo);

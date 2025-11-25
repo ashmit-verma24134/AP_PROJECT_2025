@@ -29,6 +29,7 @@ public class AdminSectionsPanel extends JPanel {
     private final JButton btnAdd = new JButton("Add Section");
     private final JButton btnRefresh = new JButton("Refresh");
     private final JButton btnDelete = new JButton("Delete Selected");
+    private final JButton btnDeadline = new JButton("Set Drop Deadline");
 
     private final DefaultTableModel model;
     private final JTable table;
@@ -66,7 +67,7 @@ public class AdminSectionsPanel extends JPanel {
 
         r++; gc.gridy = r; gc.gridx = 0; gc.gridwidth = 4;
         JPanel br = new JPanel(new FlowLayout(FlowLayout.LEFT,8,0)); br.setOpaque(false);
-        br.add(btnAdd); br.add(btnRefresh); br.add(btnDelete);
+        br.add(btnAdd); br.add(btnRefresh); br.add(btnDelete); br.add(btnDeadline);
         form.add(br, gc);
 
         add(form, BorderLayout.NORTH);
@@ -83,15 +84,31 @@ public class AdminSectionsPanel extends JPanel {
         btnRefresh.addActionListener(e -> refreshCourseListAndSections());
         btnAdd.addActionListener(e -> addSection());
         btnDelete.addActionListener(e -> deleteSelected());
+        btnDeadline.addActionListener(e -> {
+            int selectedRow = table.getSelectedRow();
+            if (selectedRow < 0) {
+                JOptionPane.showMessageDialog(this, "Select a section row first!");
+                return;
+            }
+            Object idObj = model.getValueAt(selectedRow, 0);
+            long sectionId = (idObj instanceof Number) ? ((Number) idObj).longValue() : Long.parseLong(idObj.toString());
+            openDeadlineDialog(sectionId);
+        });
 
         // initial load
         SwingUtilities.invokeLater(this::refreshCourseListAndSections);
+    }
+
+    private void openDeadlineDialog(long sectionId) {
+        new SectionDeadlineDialog(SwingUtilities.getWindowAncestor(this), sectionId);
+        refreshCourseListAndSections();   // refresh UI
     }
 
     private void refreshCourseListAndSections() {
         btnRefresh.setEnabled(false);
         btnAdd.setEnabled(false);
         btnDelete.setEnabled(false);
+        btnDeadline.setEnabled(false);
 
         new SwingWorker<Void,Void>() {
             Exception err = null;
@@ -128,18 +145,17 @@ public class AdminSectionsPanel extends JPanel {
                     String semCol = detectColumn(md, secTbl, new String[]{"semester","term"});
                     String yearCol = detectColumn(md, secTbl, new String[]{"year"});
 
-if (secTbl != null && secIdCol != null && courseIdColInSec != null) {
-    StringBuilder q = new StringBuilder();
-    q.append("SELECT s.").append(secIdCol)
-     .append(", s.").append(courseIdColInSec)
-     .append(", ").append(secCodeCol != null ? "s." + secCodeCol : "NULL AS section_code")
-     .append(", ").append(timeCol != null ? "s." + timeCol : "NULL AS day_time")
-     .append(", ").append(roomCol != null ? "s." + roomCol : "NULL AS room")
-     .append(", ").append(capCol != null ? "s." + capCol : "NULL AS capacity")
-     .append(", ").append(semCol != null ? "s." + semCol : "NULL AS semester")
-     .append(", ").append(yearCol != null ? "s." + yearCol : "NULL AS year")
-     .append(" FROM ").append(secTbl).append(" s ORDER BY s.").append(secIdCol);
-
+                    if (secTbl != null && secIdCol != null && courseIdColInSec != null) {
+                        StringBuilder q = new StringBuilder();
+                        q.append("SELECT s.").append(secIdCol)
+                         .append(", s.").append(courseIdColInSec)
+                         .append(", ").append(secCodeCol != null ? "s." + secCodeCol : "NULL AS section_code")
+                         .append(", ").append(timeCol != null ? "s." + timeCol : "NULL AS day_time")
+                         .append(", ").append(roomCol != null ? "s." + roomCol : "NULL AS room")
+                         .append(", ").append(capCol != null ? "s." + capCol : "NULL AS capacity")
+                         .append(", ").append(semCol != null ? "s." + semCol : "NULL AS semester")
+                         .append(", ").append(yearCol != null ? "s." + yearCol : "NULL AS year")
+                         .append(" FROM ").append(secTbl).append(" s ORDER BY s.").append(secIdCol);
 
                         try (PreparedStatement ps = conn.prepareStatement(q.toString());
                              ResultSet rs = ps.executeQuery()) {
@@ -173,6 +189,7 @@ if (secTbl != null && secIdCol != null && courseIdColInSec != null) {
                 btnRefresh.setEnabled(true);
                 btnAdd.setEnabled(true);
                 btnDelete.setEnabled(true);
+                btnDeadline.setEnabled(true);
                 if (err != null) {
                     JOptionPane.showMessageDialog(AdminSectionsPanel.this, "Failed to load sections/courses: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
                     return;

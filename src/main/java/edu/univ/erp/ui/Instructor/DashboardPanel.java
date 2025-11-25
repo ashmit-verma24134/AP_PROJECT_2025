@@ -1,6 +1,7 @@
 package edu.univ.erp.ui.Instructor;
 
 import edu.univ.erp.ui.Theme;
+import edu.univ.erp.util.DBConnection;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
@@ -9,56 +10,94 @@ import org.jfree.data.category.DefaultCategoryDataset;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.util.ArrayList;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.*;
 import java.util.List;
 
+/**
+ * DashboardPanel - dynamic content for instructor dashboard.
+ * Public API: setInstructorContext(long instructorId, String username)
+ */
 public class DashboardPanel extends JPanel {
+
+    private final JLabel lblWelcome;
+    private JLabel lblActiveCourses;
+    private JLabel lblTotalStudents;
+    private final JPanel myCoursesPanel;
+    private final NotificationPanel notificationPanel;
+
+    private long currentInstructorId = 0L;
+    private String currentUsername = "Instructor";
 
     public DashboardPanel() {
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
-        // ===== Header Bar =====
+        // header with welcome
         JPanel header = new JPanel(new BorderLayout());
         header.setBackground(Theme.PRIMARY);
         header.setBorder(new EmptyBorder(20, 24, 20, 24));
 
-        JLabel welcome = new JLabel("👋 Welcome back, Dr. Gupta");
-        welcome.setFont(Theme.HEADER_FONT);
-        welcome.setForeground(Color.WHITE);
+        lblWelcome = new JLabel("👋 Welcome back, Dr. Gupta");
+        lblWelcome.setFont(Theme.HEADER_FONT);
+        lblWelcome.setForeground(Color.WHITE);
 
-        JLabel subtitle = new JLabel("Here’s what’s happening with your courses today.");
+        JLabel subtitle = new JLabel("Here's what's happening with your courses today.");
         subtitle.setFont(Theme.BODY_FONT);
         subtitle.setForeground(Color.WHITE);
 
         JPanel titlePanel = new JPanel(new GridLayout(2, 1));
         titlePanel.setBackground(Theme.PRIMARY);
-        titlePanel.add(welcome);
+        titlePanel.add(lblWelcome);
         titlePanel.add(subtitle);
 
         header.add(titlePanel, BorderLayout.WEST);
         add(header, BorderLayout.NORTH);
 
-        // ===== Scrollable Content =====
+        // content
         JPanel content = new JPanel();
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         content.setBackground(Theme.BACKGROUND);
         content.setBorder(new EmptyBorder(20, 30, 30, 30));
 
-        // --- Metrics Row ---
         content.add(createStatsRow());
         content.add(Box.createVerticalStrut(25));
 
-        // --- Courses & Upcoming Classes ---
         JPanel middlePanel = new JPanel(new GridLayout(1, 2, 20, 0));
         middlePanel.setBackground(Theme.BACKGROUND);
-        middlePanel.add(createMyCoursesPanel());
-        middlePanel.add(createUpcomingClassesPanel());
-        content.add(middlePanel);
 
+        myCoursesPanel = new JPanel();
+        myCoursesPanel.setLayout(new BoxLayout(myCoursesPanel, BoxLayout.Y_AXIS));
+        myCoursesPanel.setBackground(Theme.BACKGROUND);
+        JPanel myCoursesWrapper = new JPanel(new BorderLayout());
+        myCoursesWrapper.setBackground(Theme.BACKGROUND);
+        myCoursesWrapper.add(createMyCoursesHeader(), BorderLayout.NORTH);
+        myCoursesWrapper.add(new JScrollPane(myCoursesPanel), BorderLayout.CENTER);
+
+        middlePanel.add(myCoursesWrapper);
+
+        // RIGHT column = notifications + upcoming classes stacked
+        JPanel rightCol = new JPanel();
+        rightCol.setLayout(new BoxLayout(rightCol, BoxLayout.Y_AXIS));
+        rightCol.setBackground(Theme.BACKGROUND);
+
+        notificationPanel = new NotificationPanel();
+
+        // Add notification panel at the top
+        rightCol.add(notificationPanel);
+        rightCol.add(Box.createVerticalStrut(20));
+
+        // Existing upcoming classes panel (unchanged)
+        rightCol.add(createUpcomingClassesPanel());
+
+        // Add assembled right column
+        middlePanel.add(rightCol);
+
+        content.add(middlePanel);
         content.add(Box.createVerticalStrut(25));
 
-        // --- Performance Chart + Activity Feed ---
         JPanel bottomPanel = new JPanel(new GridLayout(1, 2, 20, 0));
         bottomPanel.setBackground(Theme.BACKGROUND);
         bottomPanel.add(createPerformanceChartPanel());
@@ -66,20 +105,35 @@ public class DashboardPanel extends JPanel {
         content.add(bottomPanel);
 
         add(new JScrollPane(content), BorderLayout.CENTER);
+
+        // Initialize label references (will be set in createStatsRow)
+        lblActiveCourses = new JLabel("—");
+        lblActiveCourses.setFont(new Font("Segoe UI", Font.BOLD, 24));
+        lblTotalStudents = new JLabel("—");
+        lblTotalStudents.setFont(new Font("Segoe UI", Font.BOLD, 24));
     }
 
-    // ==========================================
-    // Stats Section
-    // ==========================================
     private JPanel createStatsRow() {
         JPanel panel = new JPanel(new GridLayout(1, 4, 20, 0));
         panel.setBackground(Theme.BACKGROUND);
 
-        panel.add(createStatCard("📘 Active Courses", "4", "+1 this semester"));
-        panel.add(createStatCard("👥 Total Students", "312", "+12%"));
-        panel.add(createStatCard("📝 Pending Reviews", "24", ""));
-        panel.add(createStatCard("📊 Avg. Performance", "82%", "+5%"));
+        JPanel c1 = createStatCard("📘 Active Courses", "0", "");
+        JPanel c2 = createStatCard("👥 Total Students", "0", "");
+        JPanel c3 = createStatCard("📝 Pending Reviews", "0", "");
+        JPanel c4 = createStatCard("📊 Avg. Performance", "—", "");
 
+        // extract the big labels for dynamic updates
+        JLabel v1 = extractValueLabelFromStatCard(c1);
+        JLabel v2 = extractValueLabelFromStatCard(c2);
+
+        // store references
+        lblActiveCourses = v1;
+        lblTotalStudents = v2;
+
+        panel.add(c1);
+        panel.add(c2);
+        panel.add(c3);
+        panel.add(c4);
         return panel;
     }
 
@@ -90,7 +144,6 @@ public class DashboardPanel extends JPanel {
                 BorderFactory.createLineBorder(Theme.CARD_BORDER, 1),
                 new EmptyBorder(16, 16, 16, 16)
         ));
-
         JLabel titleLabel = new JLabel(title);
         titleLabel.setFont(Theme.BODY_BOLD);
         titleLabel.setForeground(Theme.NEUTRAL_MED);
@@ -113,34 +166,238 @@ public class DashboardPanel extends JPanel {
         return card;
     }
 
-    // ==========================================
-    // My Courses Section
-    // ==========================================
-    private JPanel createMyCoursesPanel() {
+    private JLabel extractValueLabelFromStatCard(JPanel card) {
+        Component center = ((BorderLayout) card.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        if (center instanceof JPanel) {
+            JPanel vp = (JPanel) center;
+            if (vp.getComponentCount() >= 1 && vp.getComponent(0) instanceof JLabel) {
+                return (JLabel) vp.getComponent(0);
+            }
+        }
+        JLabel fallback = new JLabel("—");
+        fallback.setFont(new Font("Segoe UI", Font.BOLD, 24));
+        return fallback;
+    }
+
+    private JPanel createMyCoursesHeader() {
+        JPanel p = new JPanel(new BorderLayout());
+        p.setBackground(Theme.BACKGROUND);
+        JLabel header = new JLabel("My Courses");
+        header.setFont(Theme.TITLE_FONT);
+        header.setBorder(new EmptyBorder(0, 0, 10, 0));
+        p.add(header, BorderLayout.WEST);
+        return p;
+    }
+
+    private JPanel createUpcomingClassesPanel() {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBackground(Theme.BACKGROUND);
-
-        JLabel header = new JLabel("My Courses");
+        JLabel header = new JLabel("Upcoming Classes");
         header.setFont(Theme.TITLE_FONT);
         header.setBorder(new EmptyBorder(0, 0, 10, 0));
         panel.add(header);
 
-        List<JPanel> courseCards = new ArrayList<>();
-        courseCards.add(createCourseCard("Data Structures & Algorithms", "CSE201", 85, "Mon, Wed 10:00 AM", "8 assignments to grade"));
-        courseCards.add(createCourseCard("Advanced Algorithms", "CSE401", 62, "Tue, Thu 2:00 PM", "6 assignments to grade"));
-        courseCards.add(createCourseCard("Database Management Systems", "CSE301", 95, "Mon, Wed 2:00 PM", "10 assignments to grade"));
-        courseCards.add(createCourseCard("Operating Systems", "CSE302", 70, "Tue, Thu 10:00 AM", "5 assignments to grade"));
+        panel.add(createUpcomingClassCard("Data Structures", "Today", "10:00 - 11:30 AM", "LHC-101", "Topic: Binary Search Trees"));
+        panel.add(createUpcomingClassCard("Database Systems", "Today", "2:00 - 3:30 PM", "LHC-203", "Topic: SQL Joins & Transactions"));
+        panel.add(createUpcomingClassCard("Advanced Algorithms", "Tomorrow", "2:00 - 3:30 PM", "LHC-102", "Topic: Dynamic Programming"));
 
-        JPanel grid = new JPanel(new GridLayout(2, 2, 20, 20));
-        grid.setBackground(Theme.BACKGROUND);
-        for (JPanel c : courseCards) grid.add(c);
-
-        panel.add(grid);
         return panel;
     }
 
-    private JPanel createCourseCard(String name, String code, int students, String schedule, String notice) {
+    private JPanel createUpcomingClassCard(String name, String day, String time, String room, String topic) {
+        JPanel card = new JPanel(new GridLayout(5, 1, 0, 2));
+        card.setBackground(Theme.SURFACE);
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Theme.CARD_BORDER, 1),
+                new EmptyBorder(12, 12, 12, 12)
+        ));
+        card.add(new JLabel("<html><b>" + name + "</b></html>"));
+        card.add(new JLabel("📅 " + day));
+        card.add(new JLabel("🕒 " + time));
+        card.add(new JLabel("📍 " + room));
+        JLabel topicLabel = new JLabel(topic);
+        topicLabel.setFont(Theme.BODY_FONT);
+        topicLabel.setForeground(Theme.NEUTRAL_MED);
+        card.add(topicLabel);
+        return card;
+    }
+
+    private JPanel createPerformanceChartPanel() {
+        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
+        dataset.addValue(78, "Avg Score (%)", "DS");
+        dataset.addValue(92, "Avg Score (%)", "Algo");
+        dataset.addValue(85, "Avg Score (%)", "DBMS");
+        dataset.addValue(70, "Avg Score (%)", "OS");
+
+        JFreeChart chart = ChartFactory.createBarChart(
+                "Course Performance Overview", "", "Percentage (%)", dataset);
+
+        ChartPanel chartPanel = new ChartPanel(chart);
+        chartPanel.setPreferredSize(new Dimension(500, 350));
+        chartPanel.setBackground(Theme.SURFACE);
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBackground(Theme.SURFACE);
+        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        panel.add(chartPanel, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private JPanel createRecentActivityPanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBackground(Theme.BACKGROUND);
+        JLabel header = new JLabel("Recent Activity");
+        header.setFont(Theme.TITLE_FONT);
+        header.setBorder(new EmptyBorder(0, 0, 10, 0));
+        panel.add(header);
+
+        panel.add(activityItem("RS", "Rahul Sharma submitted assignment in Data Structures", "2 hours ago"));
+        panel.add(activityItem("PP", "Priya Patel asked a question in Algorithms", "3 hours ago"));
+        panel.add(activityItem("AK", "Amit Kumar submitted assignment in Database Systems", "5 hours ago"));
+
+        return panel;
+    }
+
+    private JPanel activityItem(String initials, String message, String time) {
+        JPanel card = new JPanel(new BorderLayout(8, 4));
+        card.setBackground(Theme.SURFACE);
+        card.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.CARD_BORDER));
+        card.setPreferredSize(new Dimension(280, 60));
+        JLabel icon = new JLabel(initials, SwingConstants.CENTER);
+        icon.setOpaque(true);
+        icon.setBackground(Theme.PRIMARY_LIGHT);
+        icon.setForeground(Theme.PRIMARY_DARK);
+        icon.setFont(Theme.BODY_BOLD);
+        icon.setPreferredSize(new Dimension(32, 32));
+        JLabel msg = new JLabel("<html><b>" + message.split(" ")[0] + " " + message.split(" ")[1] + "</b> " +
+                message.substring(message.indexOf(" ", message.indexOf(" ")+1)) + "</html>");
+        msg.setFont(Theme.BODY_FONT);
+        JLabel timeLabel = new JLabel(time);
+        timeLabel.setFont(Theme.BODY_FONT);
+        timeLabel.setForeground(Theme.NEUTRAL_MED);
+
+        JPanel text = new JPanel(new BorderLayout());
+        text.setBackground(Theme.SURFACE);
+        text.add(msg, BorderLayout.CENTER);
+        text.add(timeLabel, BorderLayout.SOUTH);
+
+        card.add(icon, BorderLayout.WEST);
+        card.add(text, BorderLayout.CENTER);
+        return card;
+    }
+
+    private JButton styledButton(String text, Color bg) {
+        JButton btn = new JButton(text);
+        btn.setFont(Theme.BODY_BOLD);
+        btn.setBackground(bg);
+        btn.setForeground(bg.equals(Theme.SURFACE) ? Theme.NEUTRAL_DARK : Color.WHITE);
+        btn.setFocusPainted(false);
+        btn.setBorder(new EmptyBorder(8, 16, 8, 16));
+        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
+
+    /**
+     * Public API to set instructor context and trigger load.
+     */
+    public void setInstructorContext(long instructorId, String username) {
+        this.currentInstructorId = instructorId;
+        this.currentUsername = (username == null || username.isBlank()) ? "Instructor" : username;
+        SwingUtilities.invokeLater(() -> lblWelcome.setText("👋 Welcome back, " + this.currentUsername));
+        loadInstructorMetricsAsync(instructorId);
+    }
+
+    private void loadInstructorMetricsAsync(long instructorId) {
+        SwingWorker<Map<String,Object>, Void> worker = new SwingWorker<>() {
+            @Override
+            protected Map<String, Object> doInBackground() throws Exception {
+                Map<String,Object> out = new HashMap<>();
+                int activeCourses = 0;
+                int totalStudents = 0;
+                List<Map<String,Object>> sections = new ArrayList<>();
+
+                String secSql = """
+                    SELECT s.section_id, c.code AS course_code,
+                           c.title AS course_title,
+                           (SELECT COUNT(*) FROM enrollments e
+                                WHERE e.section_id = s.section_id AND e.status='ENROLLED') AS enrolled
+                    FROM sections s
+                    JOIN courses c ON s.course_id = c.course_id
+                    WHERE s.instructor_id = ?
+                    ORDER BY c.code
+                """;
+
+                try (Connection conn = DBConnection.getErpConnection();
+                     PreparedStatement ps = conn.prepareStatement(secSql)) {
+                    ps.setLong(1, instructorId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            activeCourses++;
+                            int enrolled = rs.getInt("enrolled");
+                            totalStudents += enrolled;
+                            Map<String,Object> row = new HashMap<>();
+                            row.put("course_code", rs.getString("course_code"));
+                            row.put("course_title", rs.getString("course_title"));
+                            row.put("enrolled", enrolled);
+                            sections.add(row);
+                        }
+                    }
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+
+                out.put("activeCourses", activeCourses);
+                out.put("totalStudents", totalStudents);
+                out.put("sections", sections);
+                return out;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    Map<String,Object> result = get();
+                    int ac = (int) result.getOrDefault("activeCourses", 0);
+                    int ts = (int) result.getOrDefault("totalStudents", 0);
+                    @SuppressWarnings("unchecked")
+                    List<Map<String,Object>> secs = (List<Map<String,Object>>) result.getOrDefault("sections", new ArrayList<>());
+
+                    lblActiveCourses.setText(String.valueOf(ac));
+                    lblTotalStudents.setText(String.valueOf(ts));
+
+                    // Update notification panel with instructor ID
+                    notificationPanel.setInstructorId(instructorId);
+
+                    myCoursesPanel.removeAll();
+                    if (secs.isEmpty()) {
+                        JLabel none = new JLabel("No active courses.");
+                        none.setFont(Theme.BODY_FONT);
+                        none.setForeground(Theme.NEUTRAL_MED);
+                        myCoursesPanel.add(none);
+                    } else {
+                        JPanel grid = new JPanel(new GridLayout(Math.max(1, (secs.size()+1)/2), 2, 20, 20));
+                        grid.setBackground(Theme.BACKGROUND);
+                        for (Map<String,Object> r : secs) {
+                            String code = String.valueOf(r.getOrDefault("course_code",""));
+                            String title = String.valueOf(r.getOrDefault("course_title",""));
+                            int enrolled = (int) r.getOrDefault("enrolled", 0);
+                            grid.add(makeCourseCard(title, code, enrolled, "TBD", ""));
+                        }
+                        myCoursesPanel.add(grid);
+                    }
+                    myCoursesPanel.revalidate();
+                    myCoursesPanel.repaint();
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private JPanel makeCourseCard(String name, String code, int students, String schedule, String notice) {
         JPanel card = new JPanel(new BorderLayout());
         card.setBackground(Theme.SURFACE);
         card.setBorder(BorderFactory.createCompoundBorder(
@@ -174,151 +431,5 @@ public class DashboardPanel extends JPanel {
         card.add(info, BorderLayout.CENTER);
         card.add(btnPanel, BorderLayout.SOUTH);
         return card;
-    }
-
-    // ==========================================
-    // Upcoming Classes
-    // ==========================================
-    private JPanel createUpcomingClassesPanel() {
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setBackground(Theme.BACKGROUND);
-
-        JLabel header = new JLabel("Upcoming Classes");
-        header.setFont(Theme.TITLE_FONT);
-        header.setBorder(new EmptyBorder(0, 0, 10, 0));
-        panel.add(header);
-
-        panel.add(createUpcomingClassCard("Data Structures", "Today", "10:00 - 11:30 AM", "LHC-101", "Topic: Binary Search Trees"));
-        panel.add(createUpcomingClassCard("Database Systems", "Today", "2:00 - 3:30 PM", "LHC-203", "Topic: SQL Joins & Transactions"));
-        panel.add(createUpcomingClassCard("Advanced Algorithms", "Tomorrow", "2:00 - 3:30 PM", "LHC-102", "Topic: Dynamic Programming"));
-
-        return panel;
-    }
-
-    private JPanel createUpcomingClassCard(String name, String day, String time, String room, String topic) {
-        JPanel card = new JPanel(new GridLayout(5, 1, 0, 2));
-        card.setBackground(Theme.SURFACE);
-        card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Theme.CARD_BORDER, 1),
-                new EmptyBorder(12, 12, 12, 12)
-        ));
-
-        card.add(new JLabel("<html><b>" + name + "</b></html>"));
-        card.add(new JLabel("📅 " + day));
-        card.add(new JLabel("🕒 " + time));
-        card.add(new JLabel("📍 " + room));
-
-        JLabel topicLabel = new JLabel(topic);
-        topicLabel.setFont(Theme.BODY_FONT);
-        topicLabel.setForeground(Theme.NEUTRAL_MED);
-        card.add(topicLabel);
-        return card;
-    }
-
-    // ==========================================
-    // Chart Section
-    // ==========================================
-    private JPanel createPerformanceChartPanel() {
-        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-        dataset.addValue(78, "Avg Score (%)", "DS");
-        dataset.addValue(92, "Avg Score (%)", "Algo");
-        dataset.addValue(85, "Avg Score (%)", "DBMS");
-        dataset.addValue(70, "Avg Score (%)", "OS");
-
-        dataset.addValue(90, "Submission Rate (%)", "DS");
-        dataset.addValue(95, "Submission Rate (%)", "Algo");
-        dataset.addValue(93, "Submission Rate (%)", "DBMS");
-        dataset.addValue(80, "Submission Rate (%)", "OS");
-
-        JFreeChart chart = ChartFactory.createBarChart(
-                "Course Performance Overview", "", "Percentage (%)", dataset);
-
-        ChartPanel chartPanel = new ChartPanel(chart);
-        chartPanel.setPreferredSize(new Dimension(500, 350));
-        chartPanel.setBackground(Theme.SURFACE);
-
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBackground(Theme.SURFACE);
-        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
-        panel.add(chartPanel, BorderLayout.CENTER);
-        return panel;
-    }
-
-    // ==========================================
-    // Recent Activity Panel
-    // ==========================================
-    private JPanel createRecentActivityPanel() {
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setBackground(Theme.BACKGROUND);
-
-        JLabel header = new JLabel("Recent Activity");
-        header.setFont(Theme.TITLE_FONT);
-        header.setBorder(new EmptyBorder(0, 0, 10, 0));
-        panel.add(header);
-
-        panel.add(activityItem("RS", "Rahul Sharma submitted assignment in Data Structures", "2 hours ago"));
-        panel.add(activityItem("PP", "Priya Patel asked a question in Algorithms", "3 hours ago"));
-        panel.add(activityItem("AK", "Amit Kumar submitted assignment in Database Systems", "5 hours ago"));
-        panel.add(activityItem("SR", "Sneha Reddy attended office hours in Operating Systems", "1 day ago"));
-        panel.add(activityItem("VS", "Vikram Singh submitted assignment in Data Structures", "1 day ago"));
-
-        return panel;
-    }
-
-    private JPanel activityItem(String initials, String message, String time) {
-        JPanel card = new JPanel(new BorderLayout(8, 4));
-        card.setBackground(Theme.SURFACE);
-        card.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.CARD_BORDER));
-        card.setPreferredSize(new Dimension(280, 60));
-
-        JLabel icon = new JLabel(initials, SwingConstants.CENTER);
-        icon.setOpaque(true);
-        icon.setBackground(Theme.PRIMARY_LIGHT);
-        icon.setForeground(Theme.PRIMARY_DARK);
-        icon.setFont(Theme.BODY_BOLD);
-        icon.setPreferredSize(new Dimension(32, 32));
-
-        JLabel msg = new JLabel("<html><b>" + message.split(" ")[0] + " " + message.split(" ")[1] + "</b> " +
-                message.substring(message.indexOf(" ", message.indexOf(" ")+1)) + "</html>");
-        msg.setFont(Theme.BODY_FONT);
-
-        JLabel timeLabel = new JLabel(time);
-        timeLabel.setFont(Theme.BODY_FONT);
-        timeLabel.setForeground(Theme.NEUTRAL_MED);
-
-        JPanel text = new JPanel(new BorderLayout());
-        text.setBackground(Theme.SURFACE);
-        text.add(msg, BorderLayout.CENTER);
-        text.add(timeLabel, BorderLayout.SOUTH);
-
-        card.add(icon, BorderLayout.WEST);
-        card.add(text, BorderLayout.CENTER);
-        return card;
-    }
-
-    // ==========================================
-    // Button styling
-    // ==========================================
-    private JButton styledButton(String text, Color bg) {
-        JButton btn = new JButton(text);
-        btn.setFont(Theme.BODY_BOLD);
-        btn.setBackground(bg);
-        btn.setForeground(bg.equals(Theme.SURFACE) ? Theme.NEUTRAL_DARK : Color.WHITE);
-        btn.setFocusPainted(false);
-        btn.setBorder(new EmptyBorder(8, 16, 8, 16));
-        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btn.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseEntered(java.awt.event.MouseEvent e) {
-                btn.setBackground(Theme.darken(bg, 0.1f));
-            }
-            @Override
-            public void mouseExited(java.awt.event.MouseEvent e) {
-                btn.setBackground(bg);
-            }
-        });
-        return btn;
     }
 }

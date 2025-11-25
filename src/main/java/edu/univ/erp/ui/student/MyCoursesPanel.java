@@ -35,6 +35,8 @@ public class MyCoursesPanel extends JPanel implements RegistrationListener {
 
     // Formatter for displayed deadline
     private final DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd MMM yyyy");
+    private JTable tableReference;  // reference to the JTable
+    private JTextField txtSearchReference; // reference to the search text field
 
     public MyCoursesPanel() {
         setLayout(new BorderLayout(10, 10));
@@ -50,7 +52,10 @@ public class MyCoursesPanel extends JPanel implements RegistrationListener {
         // Search panel
         JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
         searchPanel.setBackground(Theme.BACKGROUND);
+        //txtSearch = new JTextField(20);
         txtSearch = new JTextField(20);
+        this.txtSearchReference = txtSearch;   // <-- store reference
+
         JButton btnSearch = new JButton("Search");
         JButton btnRefresh = new JButton("Refresh");
 
@@ -72,7 +77,10 @@ public class MyCoursesPanel extends JPanel implements RegistrationListener {
             }
         };
 
+        //JTable table = new JTable(model);
         JTable table = new JTable(model);
+        this.tableReference = table;   // <-- store reference
+
         table.setRowHeight(36);
         table.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         table.setGridColor(new Color(230,230,230));
@@ -308,4 +316,79 @@ public class MyCoursesPanel extends JPanel implements RegistrationListener {
             return super.stopCellEditing();
         }
     }
+
+    /**
+ * Called by StudentPanel when maintenance mode toggles.
+ * Disables all interactive actions without breaking existing functionality.
+ */
+// =====================
+// Maintenance Mode Support
+// =====================
+public void setActionsEnabled(boolean enabled) {
+    // 1. Disable table editing
+    try {
+        tablePanelSetEnabled(enabled);
+    } catch (Exception ignore) {}
+
+    // 2. Disable search bar and buttons
+    try {
+        if (txtSearch != null) txtSearch.setEnabled(enabled);
+    } catch (Exception ignore) {}
+
+    try {
+        // Find search buttons inside parent container
+        for (Component c : this.getComponents()) {
+            if (c instanceof JPanel) {
+                for (Component inner : ((JPanel)c).getComponents()) {
+                    if (inner instanceof JButton) inner.setEnabled(enabled);
+                }
+            }
+        }
+    } catch (Exception ignore) {}
+}
+
+/**
+ * Disables table + cell editors safely
+ */
+private void tablePanelSetEnabled(boolean enabled) {
+    try {
+        JTable table = findTable();
+        if (table != null) {
+            table.setEnabled(enabled);
+
+            // Disable existing editors
+            for (int col = 0; col < table.getColumnCount(); col++) {
+                TableCellEditor ed = table.getColumnModel().getColumn(col).getCellEditor();
+                if (ed instanceof DefaultCellEditor) {
+                    Component editorComp = ((DefaultCellEditor) ed).getComponent();
+                    if (editorComp != null) editorComp.setEnabled(enabled);
+                }
+            }
+        }
+    } catch (Exception ignore) {}
+}
+
+/**
+ * Finds the JTable inside the scroll pane
+ */
+private JTable findTable() {
+    try {
+        for (Component c : this.getComponents()) {
+            if (c instanceof JPanel) {
+                for (Component inner : ((JPanel)c).getComponents()) {
+                    if (inner instanceof JScrollPane) {
+                        JScrollPane sp = (JScrollPane) inner;
+                        JViewport vp = sp.getViewport();
+                        Component view = vp.getView();
+                        if (view instanceof JTable) return (JTable) view;
+                    }
+                }
+            }
+        }
+    } catch (Exception ignore) {}
+
+    return null;
+}
+
+
 }

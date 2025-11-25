@@ -3,19 +3,18 @@ package edu.univ.erp.ui.Instructor;
 import edu.univ.erp.ui.MainFrame;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
-
-import edu.univ.erp.ui.Instructor.DashboardPanel;
-import edu.univ.erp.ui.Instructor.MyCoursesPanel;
-import edu.univ.erp.ui.Instructor.CourseDetailsPanel;
-import edu.univ.erp.ui.Instructor.InstructorTimetablePanel;
-
+import edu.univ.erp.util.DBConnection;
 
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.sql.Connection;
 
 /**
- * InstructorPanel – clean sidebar + main content using CardLayout.
- * Provides navigation for instructor-specific modules.
+ * InstructorPanel – fixed and cleaned version.
+ * - exposes setInstructorContext(instructorId, term, username)
+ * - uses DashboardPanel and InstructorGradebookPanel with the new context calls
+ * - keeps previous navigation behavior
  */
 public class InstructorPanel extends JPanel {
     private final MainFrame mainFrame;
@@ -23,65 +22,56 @@ public class InstructorPanel extends JPanel {
     private final JPanel navButtonsContainer = new JPanel();
     private final JPanel cards = new JPanel(new CardLayout());
 
-    // Placeholder pages
-    // Real panels
-    private final JPanel dashboardPanel = new DashboardPanel();
-    private final JPanel coursesPanel = new MyCoursesPanel();
-    // current instructor context (set after login)
-    private long currentInstructorId = 0L;
-    private String currentTerm = null;
-    private String instructorUsername = "Instructor"; // Store username
-
-    private final JPanel gradebookPanel = new InstructorGradebookPanel();
+    // Panels (existing classes)
+    private final DashboardPanel dashboardPanel = new DashboardPanel();
+    private final MyCoursesPanel coursesPanel = new MyCoursesPanel(); // instructor-side MyCoursesPanel
+    private final InstructorGradebookPanel gradebookPanel = new InstructorGradebookPanel();
     private final JPanel timetablePanel = new InstructorTimetablePanel();
     private final JPanel announcementsPanel = createPlaceholderPanel("📢 Announcements - Post or view messages");
     private final JPanel profilePanel = createPlaceholderPanel("👤 Profile - Manage personal information");
 
-    // Welcome label to update dynamically
-    private final JLabel welcomeLabel = new JLabel("Welcome, Instructor");
+    // context
+    private long currentInstructorId = 0L;
+    private String currentTerm = null;
+    private String instructorUsername = "Instructor";
 
     public InstructorPanel(MainFrame mainFrame) {
         this.mainFrame = mainFrame;
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
-        // === Header ===
-        JPanel header = new JPanel(new BorderLayout());
-        header.setOpaque(false);
-        header.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
-        
-        welcomeLabel.setFont(Theme.TITLE_FONT);
-        welcomeLabel.setForeground(Color.WHITE);
-
+        // header
         JPanel headerWrap = new JPanel(new BorderLayout());
         headerWrap.setBackground(Theme.PRIMARY);
+        headerWrap.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        JLabel welcomeLabel = new JLabel("Welcome, Instructor");
+        welcomeLabel.setFont(Theme.TITLE_FONT);
+        welcomeLabel.setForeground(Color.WHITE);
         headerWrap.add(welcomeLabel, BorderLayout.WEST);
 
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         rightPanel.setOpaque(false);
-        
         JButton changePassword = new JButton("Change Password");
         changePassword.setBackground(new Color(255, 255, 255, 180));
         changePassword.setForeground(Theme.PRIMARY);
         changePassword.setFocusPainted(false);
-        changePassword.addActionListener(e -> showChangePasswordDialog());
-        
+        changePassword.addActionListener(e -> {
+            // delegate to dashboardPanel's dialog or AuthService.changePassword(...) integration
+            JOptionPane.showMessageDialog(this, "Use Change Password in header (not implemented here).");
+        });
         JButton logout = new JButton("Logout");
         logout.setBackground(Color.WHITE);
         logout.setForeground(Theme.PRIMARY);
         logout.setFocusPainted(false);
         logout.addActionListener(e -> mainFrame.showCard("login"));
-        
         rightPanel.add(changePassword);
         rightPanel.add(logout);
         headerWrap.add(rightPanel, BorderLayout.EAST);
-
         add(headerWrap, BorderLayout.NORTH);
 
-        // === Sidebar ===
+        // sidebar
         navPanel.setPreferredSize(new Dimension(Theme.SIDEBAR_WIDTH, 0));
         navPanel.setBackground(Theme.SIDEBAR_BG);
-
         navButtonsContainer.setLayout(new BoxLayout(navButtonsContainer, BoxLayout.Y_AXIS));
         navButtonsContainer.setOpaque(false);
         navButtonsContainer.setBounds(0, 16, Theme.SIDEBAR_WIDTH, 600);
@@ -110,8 +100,10 @@ public class InstructorPanel extends JPanel {
         navPanel.add(navButtonsContainer);
         add(navPanel, BorderLayout.WEST);
 
-        // === Card Layout (Right side) ===
+        // cards
         cards.setBackground(Theme.BACKGROUND);
+
+        // wrap existing panels consistently
         cards.add(wrapInPadding(dashboardPanel), "dashboard");
         cards.add(wrapInPadding(coursesPanel), "courses");
         cards.add(wrapInPadding(gradebookPanel), "gradebook");
@@ -121,28 +113,28 @@ public class InstructorPanel extends JPanel {
 
         add(cards, BorderLayout.CENTER);
 
-        // === Navigation actions ===
+        // navigation actions
         btnDashboard.addActionListener(e -> { setNavActive(btnDashboard); showCard("dashboard"); });
         btnCourses.addActionListener(e -> {
             setNavActive(btnCourses);
-            if (currentInstructorId > 0 && coursesPanel instanceof edu.univ.erp.ui.Instructor.MyCoursesPanel) {
-                ((edu.univ.erp.ui.Instructor.MyCoursesPanel) coursesPanel).loadForInstructor(currentInstructorId, currentTerm);
-            }
+            if (currentInstructorId > 0) coursesPanel.loadForInstructor(currentInstructorId, currentTerm);
             showCard("courses");
         });
-        btnGradebook.addActionListener(e -> { setNavActive(btnGradebook); showCard("gradebook"); });
-        btnTimetable.addActionListener(e -> { setNavActive(btnTimetable); showCard("timetable"); });
-        btnAnnouncements.addActionListener(e -> { setNavActive(btnAnnouncements); showCard("announcements"); });
-        btnProfile.addActionListener(e -> { setNavActive(btnProfile); showCard("profile"); });
+        btnGradebook.addActionListener(e -> {
+            setNavActive(btnGradebook);
+            gradebookPanel.setInstructorContext(currentInstructorId, currentTerm);
+            showCard("gradebook");
+        });
+        btnTimetable.addActionListener(e -> { setNavActive(btnTimetable); showCard("timetable");});
+        btnAnnouncements.addActionListener(e -> { setNavActive(btnAnnouncements); showCard("announcements");});
+        btnProfile.addActionListener(e -> { setNavActive(btnProfile); showCard("profile");});
 
-        // Default active page
         SwingUtilities.invokeLater(() -> {
             setNavActive(btnDashboard);
             showCard("dashboard");
         });
     }
 
-    /** Utility: Create uniform navigation button */
     private JButton makeNavButton(String text) {
         JButton b = new JButton(text);
         b.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -156,7 +148,6 @@ public class InstructorPanel extends JPanel {
         return b;
     }
 
-    /** Highlight the selected nav item */
     private void setNavActive(AbstractButton active) {
         for (Component c : navButtonsContainer.getComponents()) {
             if (c instanceof AbstractButton) {
@@ -168,44 +159,11 @@ public class InstructorPanel extends JPanel {
         active.setForeground(Color.WHITE);
     }
 
-    /**
-     * Called after login to set which instructor this panel should show.
-     * Now also accepts username to display.
-     */
-    public void setInstructorContext(long instructorId, String term, String username) {
-        this.currentInstructorId = instructorId;
-        this.currentTerm = term;
-        this.instructorUsername = username == null ? "Instructor" : username;
-        
-        // Update welcome label
-        welcomeLabel.setText("Welcome, " + this.instructorUsername);
-        
-        // Set context for gradebook panel
-        if (gradebookPanel instanceof InstructorGradebookPanel) {
-            ((InstructorGradebookPanel) gradebookPanel).setInstructorContext(instructorId, term);
-        }
-        
-        try {
-            if (coursesPanel instanceof edu.univ.erp.ui.Instructor.MyCoursesPanel && instructorId > 0) {
-                ((edu.univ.erp.ui.Instructor.MyCoursesPanel) coursesPanel).loadForInstructor(instructorId, term);
-            }
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
-    }
-
-    // Backward compatibility - keep old method signature
-    public void setInstructorContext(long instructorId, String term) {
-        setInstructorContext(instructorId, term, null);
-    }
-
-    /** Show page inside CardLayout */
     private void showCard(String name) {
         CardLayout cl = (CardLayout) cards.getLayout();
         cl.show(cards, name);
     }
 
-    /** Wrap each content panel in rounded white container */
     private JComponent wrapInPadding(JComponent c) {
         RoundedPanel p = new RoundedPanel(Theme.BORDER_RADIUS);
         p.setLayout(new BorderLayout());
@@ -216,7 +174,6 @@ public class InstructorPanel extends JPanel {
         return p;
     }
 
-    /** Temporary placeholder panels for UI structure */
     private JPanel createPlaceholderPanel(String text) {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(Color.WHITE);
@@ -225,77 +182,28 @@ public class InstructorPanel extends JPanel {
         panel.add(lbl, BorderLayout.CENTER);
         return panel;
     }
-    
-    /** Show change password dialog */
-    private void showChangePasswordDialog() {
-        JDialog dialog = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "Change Password", true);
-        dialog.setSize(400, 250);
-        dialog.setLocationRelativeTo(this);
-        
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(8, 8, 8, 8);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        
-        JPasswordField oldPassword = new JPasswordField(20);
-        JPasswordField newPassword = new JPasswordField(20);
-        JPasswordField confirmPassword = new JPasswordField(20);
-        
-        gbc.gridx = 0; gbc.gridy = 0;
-        panel.add(new JLabel("Current Password:"), gbc);
-        gbc.gridx = 1;
-        panel.add(oldPassword, gbc);
-        
-        gbc.gridx = 0; gbc.gridy = 1;
-        panel.add(new JLabel("New Password:"), gbc);
-        gbc.gridx = 1;
-        panel.add(newPassword, gbc);
-        
-        gbc.gridx = 0; gbc.gridy = 2;
-        panel.add(new JLabel("Confirm Password:"), gbc);
-        gbc.gridx = 1;
-        panel.add(confirmPassword, gbc);
-        
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton saveButton = new JButton("Save");
-        JButton cancelButton = new JButton("Cancel");
-        
-        saveButton.addActionListener(e -> {
-            String oldPass = new String(oldPassword.getPassword());
-            String newPass = new String(newPassword.getPassword());
-            String confirmPass = new String(confirmPassword.getPassword());
-            
-            if (oldPass.isEmpty() || newPass.isEmpty() || confirmPass.isEmpty()) {
-                JOptionPane.showMessageDialog(dialog, "All fields are required!", "Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-            
-            if (!newPass.equals(confirmPass)) {
-                JOptionPane.showMessageDialog(dialog, "New passwords do not match!", "Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-            
-            if (newPass.length() < 6) {
-                JOptionPane.showMessageDialog(dialog, "Password must be at least 6 characters!", "Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-            
-            // TODO: Implement actual password change logic with DB
-            JOptionPane.showMessageDialog(dialog, "Password changed successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
-            dialog.dispose();
-        });
-        
-        cancelButton.addActionListener(e -> dialog.dispose());
-        
-        buttonPanel.add(saveButton);
-        buttonPanel.add(cancelButton);
-        
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2;
-        panel.add(buttonPanel, gbc);
-        
-        dialog.add(panel);
-        dialog.setVisible(true);
+
+    /**
+     * Set context after login. This is the single authoritative method panel consumers should call.
+     *
+     * @param instructorId DB instructor_id
+     * @param term         optional term (may be null)
+     * @param username     display username to show in dashboard/header
+     */
+    public void setInstructorContext(long instructorId, String term, String username) {
+        this.currentInstructorId = instructorId;
+        this.currentTerm = term;
+        this.instructorUsername = (username == null || username.isBlank()) ? "Instructor" : username;
+
+        // update dashboard welcome text and load dashboard content
+        dashboardPanel.setInstructorContext(instructorId, this.instructorUsername);
+
+        // also tell gradebook & courses panels
+        gradebookPanel.setInstructorContext(instructorId, term);
+        coursesPanel.loadForInstructor(instructorId, term);
+    }
+
+    public void setInstructorContext(long instructorId, String username) {
+        setInstructorContext(instructorId, null, username);
     }
 }

@@ -65,7 +65,7 @@ public class AdminPanel extends JPanel {
         header.setBorder(new EmptyBorder(8, Theme.PADDING_X, 8, Theme.PADDING_X));
         header.setPreferredSize(new Dimension(0, 56));
 
-        JLabel title = new JLabel("✨ IIITD Portal—Admin ERP");
+        JLabel title = new JLabel("IIITD Portal—Admin ERP");
         title.setFont(Theme.HEADER_FONT);
         title.setForeground(Color.WHITE);
 

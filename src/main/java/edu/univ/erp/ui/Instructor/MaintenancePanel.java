@@ -56,12 +56,12 @@ public class MaintenancePanel extends JPanel {
         infoBox.setMaximumSize(new Dimension(480, 200));
         infoBox.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        infoBox.add(createInfoRow("⏰ Expected Downtime",
+        infoBox.add(createInfoRow(" Expected Downtime",
                 "We expect to be back online within 2–3 hours. We apologize for any inconvenience."));
 
         infoBox.add(Box.createVerticalStrut(10));
 
-        infoBox.add(createInfoRow("📩 Need Assistance?",
+        infoBox.add(createInfoRow(" Need Assistance?",
                 "For urgent matters, please contact IT support at <a href='mailto:support@iiitd.ac.in'>support@iiitd.ac.in</a>."));
 
         // ===== Footer =====

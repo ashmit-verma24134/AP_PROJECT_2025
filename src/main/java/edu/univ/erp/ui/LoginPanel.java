@@ -211,7 +211,7 @@ public class LoginPanel extends JPanel {
         return b;
     }
 
-    // ⬇️⬇️ FINAL MERGED LOGIC HERE ⬇️⬇️
+    //  FINAL MERGED LOGIC HERE 
     private void onSignIn(ActionEvent ev) {
         String username = usernameField.getText().trim();
         String pass = new String(passwordField.getPassword());

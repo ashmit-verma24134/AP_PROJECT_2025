@@ -16,7 +16,7 @@ public class RoundedPanel extends JPanel {
         setOpaque(false);
     }
 
-    /** ✅ New constructor with radius + background color */
+    /*New constructor with radius + background color */
     public RoundedPanel(int arc, Color bgColor) {
         super();
         this.arc = arc;

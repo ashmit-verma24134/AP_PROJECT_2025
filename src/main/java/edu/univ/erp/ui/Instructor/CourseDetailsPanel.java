@@ -22,7 +22,7 @@ public class CourseDetailsPanel extends JPanel {
         header.setBackground(Theme.PRIMARY);
         header.setBorder(new EmptyBorder(18, 24, 18, 24));
 
-        JLabel courseTitle = new JLabel("📘 CS101 - Introduction to Programming (Section A)");
+        JLabel courseTitle = new JLabel("CS101 - Introduction to Programming (Section A)");
         courseTitle.setFont(Theme.HEADER_FONT);
         courseTitle.setForeground(Color.WHITE);
 
@@ -39,10 +39,10 @@ public class CourseDetailsPanel extends JPanel {
         tabPane.setFont(Theme.BODY_FONT);
         tabPane.setBackground(Theme.SURFACE);
 
-        tabPane.addTab("🧮 Gradebook", createGradebookPanel());
-        tabPane.addTab("📅 Attendance", createAttendancePanel());
-        tabPane.addTab("📤 Materials", createMaterialsPanel());
-        tabPane.addTab("🗣️ Feedback", createFeedbackPanel());
+        tabPane.addTab(" Gradebook", createGradebookPanel());
+        tabPane.addTab(" Attendance", createAttendancePanel());
+        tabPane.addTab(" Materials", createMaterialsPanel());
+        tabPane.addTab(" Feedback", createFeedbackPanel());
 
         JScrollPane scrollPane = new JScrollPane(tabPane);
         scrollPane.setBorder(null);
@@ -50,7 +50,7 @@ public class CourseDetailsPanel extends JPanel {
     }
 
     // ===================================
-    // 🧮 GRADEBOOK TAB
+    //  GRADEBOOK TAB
     // ===================================
     private JPanel createGradebookPanel() {
         JPanel panel = new JPanel(new BorderLayout(12, 12));
@@ -85,9 +85,9 @@ public class CourseDetailsPanel extends JPanel {
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 8));
         btnPanel.setBackground(Theme.BACKGROUND);
-        JButton saveBtn = styledButton("💾 Save");
-        JButton exportBtn = styledButton("📤 Export CSV");
-        JButton lockBtn = styledButton("🔒 Lock Grades");
+        JButton saveBtn = styledButton(" Save");
+        JButton exportBtn = styledButton(" Export CSV");
+        JButton lockBtn = styledButton(" Lock Grades");
 
         btnPanel.add(saveBtn);
         btnPanel.add(exportBtn);
@@ -99,7 +99,7 @@ public class CourseDetailsPanel extends JPanel {
     }
 
     // ===================================
-    // 📅 ATTENDANCE TAB
+    //  ATTENDANCE TAB
     // ===================================
     private JPanel createAttendancePanel() {
         JPanel panel = new JPanel(new BorderLayout(12, 12));
@@ -134,8 +134,8 @@ public class CourseDetailsPanel extends JPanel {
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 8));
         btnPanel.setBackground(Theme.BACKGROUND);
-        JButton saveBtn = styledButton("💾 Save");
-        JButton exportBtn = styledButton("📤 Export CSV");
+        JButton saveBtn = styledButton(" Save");
+        JButton exportBtn = styledButton(" Export CSV");
 
         btnPanel.add(saveBtn);
         btnPanel.add(exportBtn);
@@ -146,7 +146,7 @@ public class CourseDetailsPanel extends JPanel {
     }
 
     // ===================================
-    // 📤 MATERIALS TAB
+    //  MATERIALS TAB
     // ===================================
     private JPanel createMaterialsPanel() {
         JPanel panel = new JPanel(new BorderLayout(16, 16));
@@ -156,8 +156,8 @@ public class CourseDetailsPanel extends JPanel {
         JLabel info = new JLabel("Upload lecture notes, assignments, and resources for students.");
         info.setFont(Theme.BODY_FONT);
 
-        JButton uploadBtn = styledButton("📎 Upload File");
-        JButton viewBtn = styledButton("📂 View Uploaded");
+        JButton uploadBtn = styledButton("Upload File");
+        JButton viewBtn = styledButton(" View Uploaded");
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
         buttonPanel.setBackground(Theme.BACKGROUND);
@@ -178,7 +178,7 @@ public class CourseDetailsPanel extends JPanel {
     }
 
     // ===================================
-    // 🗣️ FEEDBACK TAB
+    // FEEDBACK TAB
     // ===================================
     private JPanel createFeedbackPanel() {
         JPanel panel = new JPanel();
@@ -192,7 +192,7 @@ public class CourseDetailsPanel extends JPanel {
 
         JTextArea feedbackArea = new JTextArea(
                 """
-                ⭐ Average Rating: 4.6 / 5
+                 Average Rating: 4.6 / 5
                 
                 • "The lectures are very clear and easy to follow."
                 • "Would appreciate more examples in assignments."

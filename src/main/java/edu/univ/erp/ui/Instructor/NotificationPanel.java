@@ -38,7 +38,7 @@ public class NotificationPanel extends JPanel {
         title.setForeground(Theme.NEUTRAL_DARK);
         header.add(title, BorderLayout.WEST);
         
-        btnRefresh = new JButton("🔄 Refresh");
+        btnRefresh = new JButton(" Refresh");
         btnRefresh.setFont(Theme.BODY_FONT);
         btnRefresh.setBackground(Theme.PRIMARY);
         btnRefresh.setForeground(Color.WHITE);
@@ -226,11 +226,11 @@ public class NotificationPanel extends JPanel {
     
     private String getIconForType(String type) {
         return switch (type) {
-            case "NEW_ENROLLMENT" -> "👤";
-            case "ASSIGNMENT" -> "📝";
-            case "GRADE" -> "📊";
-            case "INFO" -> "ℹ️";
-            default -> "🔔";
+            case "NEW_ENROLLMENT" -> "";
+            case "ASSIGNMENT" -> "";
+            case "GRADE" -> "";
+            case "INFO" -> "ℹ";
+            default -> "";
         };
     }
     

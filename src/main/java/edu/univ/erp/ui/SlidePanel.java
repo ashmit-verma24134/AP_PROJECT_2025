@@ -81,7 +81,7 @@ public class SlidePanel extends JPanel {
     final int fps = 60;
     final int totalFrames = Math.max(1, durationMs * fps / 1000);
     final int dx = Math.max(1, w / totalFrames);
-    final String targetName = name; // ✅ make effectively final for lambda use
+    final String targetName = name; //  make effectively final for lambda use
 
     final Timer timer = new Timer(1000 / fps, null);
     timer.addActionListener(new AbstractAction() {
@@ -97,7 +97,7 @@ public class SlidePanel extends JPanel {
                 from.setVisible(false);
                 from.setBounds(0, 0, w, h);
                 to.setBounds(0, 0, w, h);
-                visibleKey = targetName; // ✅ use final copy
+                visibleKey = targetName; //  use final copy
                 revalidate();
                 repaint();
             }

@@ -29,7 +29,7 @@ public class Main {
                 UIManager.put("ToggleButton.font", Theme.BODY_FONT);
                 UIManager.put("TabbedPane.font", Theme.BODY_FONT);
 
-                // ✅ Updated Accent / brand colors to use new Theme constants
+                //  Updated Accent / brand colors to use new Theme constants
                 UIManager.put("Component.focusColor", Theme.PRIMARY);
                 UIManager.put("TextComponent.selectionBackground", Theme.PRIMARY);
                 UIManager.put("Button.background", Theme.PRIMARY);
@@ -42,7 +42,7 @@ public class Main {
                 UIManager.put("Table.rowHeight", 44);
                 UIManager.put("Component.focusWidth", 0);
 
-                // ✅ Neutral background (SOFT_BG → BACKGROUND)
+                //  Neutral background (SOFT_BG → BACKGROUND)
                 UIManager.put("Panel.background", Theme.BACKGROUND);
                 UIManager.put("Viewport.background", Theme.BACKGROUND);
                 UIManager.put("TabbedPane.tabAreaBackground", Theme.BACKGROUND);

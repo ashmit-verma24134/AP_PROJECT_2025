@@ -16,7 +16,7 @@ public class MaintenanceBanner extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
         // Strong, attention-grabbing background but not too harsh
         setBackground(new Color(255, 245, 240)); // very light warm tint
-        label.setText("⚠ Site is in Maintenance Mode — contents are view-only.");
+        label.setText("Site is in Maintenance Mode — contents are view-only.");
         label.setFont(label.getFont().deriveFont(Font.BOLD, 13f));
         label.setForeground(new Color(120, 30, 20)); // dark warm text
         label.setHorizontalAlignment(SwingConstants.CENTER);

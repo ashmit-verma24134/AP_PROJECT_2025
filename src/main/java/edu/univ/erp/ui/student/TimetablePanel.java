@@ -64,7 +64,7 @@ public class TimetablePanel extends JPanel {
         JPanel header = new JPanel(new BorderLayout());
         header.setBackground(Theme.PRIMARY);
         header.setBorder(new EmptyBorder(12, 16, 12, 16));
-        JLabel title = new JLabel("📅 Weekly Timetable");
+        JLabel title = new JLabel(" Weekly Timetable");
         title.setForeground(Color.WHITE);
         title.setFont(Theme.HEADER_FONT);
         header.add(title, BorderLayout.WEST);

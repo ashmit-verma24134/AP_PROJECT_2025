@@ -35,6 +35,8 @@ public class AdminCourseSectionPanel extends JPanel {
     private final DefaultTableModel coursesModel;
     private final JTable coursesTable;
     private final JButton btnCourseAdd = new JButton("Add Course");
+    private static class EnrollmentRef { final String tableName; final String sectionColumn; EnrollmentRef(String t, String c) { tableName = t; sectionColumn = c; } }
+
     private final JButton btnCourseRefresh = new JButton("Refresh");
     private final SimpleDateFormat dropFmt = new SimpleDateFormat("yyyy-MM-dd");
     private final JButton btnCourseDelete = new JButton("Delete Course"); // new
@@ -68,6 +70,8 @@ private final JSpinner spDropDeadline = new JSpinner(new SpinnerDateModel());
         JPanel pCourses = new JPanel(new BorderLayout());
         pCourses.setOpaque(false);
         JPanel courseForm = new JPanel(new GridBagLayout());
+        btnSectionDelete.addActionListener(e -> deleteSelectedSection());
+
         courseForm.setOpaque(false);
         GridBagConstraints gc = new GridBagConstraints();
         gc.insets = new Insets(6, 8, 6, 8);
@@ -292,6 +296,8 @@ private static void installCapacityFilter(final JTextField fld) {
 }
 
 
+
+
     // ------------------ Courses ------------------
     private void loadCourses() {
         btnCourseRefresh.setEnabled(false);
@@ -323,6 +329,208 @@ private static void installCapacityFilter(final JTextField fld) {
             }
         }.execute();
     }
+
+    // ----------------- Deletion helpers: show info if students are enrolled, allow proceed (force delete) -----------------
+
+// Entry returned when an enrollment table + column is detected
+
+/**
+ * Called when Delete Section button is pressed.
+ * Shows a message if students are enrolled, asks whether to continue. If admin confirms,
+ * deletes enrollment rows (if detected) then deletes section in a transaction.
+ */
+private void deleteSelectedSection() {
+    int viewRow = sectionsTable.getSelectedRow();
+    if (viewRow < 0) {
+        JOptionPane.showMessageDialog(this, "Select a section to delete");
+        return;
+    }
+    int modelRow = sectionsTable.convertRowIndexToModel(viewRow);
+    Object idObj = sectionsModel.getValueAt(modelRow, 0);
+    final long sectionId;
+    try {
+        sectionId = (idObj instanceof Number) ? ((Number) idObj).longValue() : Long.parseLong(String.valueOf(idObj));
+    } catch (Exception ex) {
+        JOptionPane.showMessageDialog(this, "Invalid section id");
+        return;
+    }
+
+    // Attempt to count enrolled students (returns null if detection failed)
+    Integer enrolledCount = null;
+    Exception detectErr = null;
+    try (Connection conn = DBConnection.getErpConnection()) {
+        enrolledCount = findEnrolledCount(conn, sectionId);
+    } catch (Exception ex) {
+        detectErr = ex;
+    }
+
+    String msg;
+    if (detectErr != null) {
+        msg = "Could not determine whether students are enrolled in this section (error: " + detectErr.getMessage() + ").\n" +
+              "Proceeding may remove the section while enrollments (if any) remain. Do you want to continue and delete the section?";
+    } else if (enrolledCount == null) {
+        msg = "Could not detect enrollment table. Proceed to delete the section? (Enrollments could exist and won't be removed automatically.)";
+    } else if (enrolledCount > 0) {
+        msg = "There are currently " + enrolledCount + " student(s) enrolled in this section.\n" +
+              "If you continue we will remove detected enrollment rows for this section and then delete the section.\n\n" +
+              "Do you want to continue and delete the section?";
+    } else {
+        msg = "No students appear to be enrolled in this section. Delete the section?";
+    }
+
+    int ok = JOptionPane.showConfirmDialog(this, msg, "Confirm delete", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+    if (ok != JOptionPane.YES_OPTION) return;
+
+    // proceed with deletion (background)
+    performDeleteSectionWithOptionalEnrollmentCleanup(sectionId);
+}
+
+/**
+ * Performs deletion in background: removes enrollment rows for section (if table detected) and deletes section.
+ * All done inside a transaction for safety.
+ */
+private void performDeleteSectionWithOptionalEnrollmentCleanup(long sectionId) {
+    btnSectionDelete.setEnabled(false);
+    new SwingWorker<Void, Void>() {
+        Exception err = null;
+        @Override protected Void doInBackground() {
+            Connection conn = null;
+            PreparedStatement psDelEnroll = null;
+            PreparedStatement psDelSection = null;
+            try {
+                conn = DBConnection.getErpConnection();
+                conn.setAutoCommit(false);
+
+                EnrollmentRef ref = detectEnrollmentTable(conn);
+                if (ref != null) {
+                    // remove enrollments referencing this section
+                    String delEnrollSql = "DELETE FROM " + ref.tableName + " WHERE " + ref.sectionColumn + " = ?";
+                    psDelEnroll = conn.prepareStatement(delEnrollSql);
+                    psDelEnroll.setLong(1, sectionId);
+                    psDelEnroll.executeUpdate();
+                }
+
+                // delete the section
+                String delSectionSql = "DELETE FROM sections WHERE section_id = ?";
+                psDelSection = conn.prepareStatement(delSectionSql);
+                psDelSection.setLong(1, sectionId);
+                int affected = psDelSection.executeUpdate();
+                if (affected == 0) throw new SQLException("Section not found or already deleted.");
+
+                conn.commit();
+            } catch (Exception ex) {
+                err = ex;
+                if (conn != null) {
+                    try { conn.rollback(); } catch (Exception ignore) {}
+                }
+            } finally {
+                try { if (psDelEnroll != null) psDelEnroll.close(); } catch (Exception ignore) {}
+                try { if (psDelSection != null) psDelSection.close(); } catch (Exception ignore) {}
+                try { if (conn != null) conn.setAutoCommit(true); } catch (Exception ignore) {}
+                try { if (conn != null) conn.close(); } catch (Exception ignore) {}
+            }
+            return null;
+        }
+
+        @Override protected void done() {
+            btnSectionDelete.setEnabled(true);
+            if (err != null) {
+                JOptionPane.showMessageDialog(AdminCourseSectionPanel.this, "Failed to delete section: " + err.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            } else {
+                loadSectionsAndFillCombos();
+                loadCourses();
+            }
+        }
+    }.execute();
+}
+
+/**
+ * Detects a likely enrollment/registration table and returns EnrollmentRef(tableName, sectionColumn)
+ * or null if none of the candidate tables/columns are found.
+ */
+private EnrollmentRef detectEnrollmentTable(Connection conn) throws SQLException {
+    DatabaseMetaData md = conn.getMetaData();
+    String[] candidateTables = new String[] {
+            "registrations", "enrollments", "student_enrollments", "student_sections", "section_registrations", "course_registrations"
+    };
+    String[] candidateCols = new String[] { "section_id", "sec_id", "sectionid", "section" };
+
+    // scan tables
+    for (String t : candidateTables) {
+        // try direct match first (some DBs are case-sensitive)
+        try (ResultSet rs = md.getTables(null, null, t, new String[] {"TABLE"})) {
+            if (rs.next()) {
+                // found table; find matching column
+                try (ResultSet cols = md.getColumns(null, null, t, "%")) {
+                    java.util.List<String> available = new java.util.ArrayList<>();
+                    while (cols.next()) available.add(cols.getString("COLUMN_NAME").toLowerCase());
+                    for (String candCol : candidateCols) {
+                        if (available.contains(candCol.toLowerCase())) {
+                            // return exact column name
+                            try (ResultSet cols2 = md.getColumns(null, null, t, "%")) {
+                                while (cols2.next()) {
+                                    String cn = cols2.getString("COLUMN_NAME");
+                                    if (cn != null && cn.equalsIgnoreCase(candCol)) return new EnrollmentRef(t, cn);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // try case-insensitive scan of all tables (fallback)
+                try (ResultSet all = md.getTables(null, null, "%", new String[] {"TABLE"})) {
+                    boolean matched = false;
+                    String realName = null;
+                    while (all.next()) {
+                        String name = all.getString("TABLE_NAME");
+                        if (name != null && name.equalsIgnoreCase(t)) { matched = true; realName = name; break; }
+                    }
+                    if (matched && realName != null) {
+                        try (ResultSet cols = md.getColumns(null, null, realName, "%")) {
+                            java.util.List<String> available = new java.util.ArrayList<>();
+                            while (cols.next()) available.add(cols.getString("COLUMN_NAME").toLowerCase());
+                            for (String candCol : candidateCols) {
+                                if (available.contains(candCol.toLowerCase())) {
+                                    try (ResultSet cols2 = md.getColumns(null, null, realName, "%")) {
+                                        while (cols2.next()) {
+                                            String cn = cols2.getString("COLUMN_NAME");
+                                            if (cn != null && cn.equalsIgnoreCase(candCol)) return new EnrollmentRef(realName, cn);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Count enrolled students for a section by probing detected enrollment table.
+ * Returns:
+ *   - integer count (0..n) if detection & query successful
+ *   - null if detection failed (we couldn't locate a candidate enrollment table)
+ */
+private Integer findEnrolledCount(Connection conn, long sectionId) {
+    try {
+        EnrollmentRef ref = detectEnrollmentTable(conn);
+        if (ref == null) return null; // unknown
+        String cntSql = "SELECT COUNT(*) FROM " + ref.tableName + " WHERE " + ref.sectionColumn + " = ?";
+        try (PreparedStatement ps = conn.prepareStatement(cntSql)) {
+            ps.setLong(1, sectionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getInt(1);
+            }
+        }
+    } catch (SQLException ex) {
+        return null;
+    }
+    return 0;
+}
+
 
     private void addCourse() {
         final String code = txtCourseCode.getText().trim();

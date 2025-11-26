@@ -5,6 +5,8 @@ import edu.univ.erp.util.DBConnection;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.text.*; // for AbstractDocument, DocumentFilter, BadLocationException, AttributeSet
+
 import javax.swing.table.DefaultTableModel;
 import java.time.ZoneId;
 import java.time.LocalDate;
@@ -58,6 +60,7 @@ private final JSpinner spDropDeadline = new JSpinner(new SpinnerDateModel());
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
         setBorder(new EmptyBorder(12, 12, 12, 12));
+        
 
         JTabbedPane tabs = new JTabbedPane();
 
@@ -168,6 +171,8 @@ private final JSpinner spDropDeadline = new JSpinner(new SpinnerDateModel());
         sg.gridy = sr; sg.gridx = 0;
         secForm.add(new JLabel("Capacity:"), sg);
         sg.gridx = 1; secForm.add(txtCapacity, sg);
+        installCapacityFilter(txtCapacity);
+
 
         sg.gridx = 2; secForm.add(new JLabel("Semester:"), sg);
         sg.gridx = 3; secForm.add(txtSemester, sg);
@@ -264,6 +269,28 @@ private final JSpinner spDropDeadline = new JSpinner(new SpinnerDateModel());
         InstructorEntry(Long id, String name) { this.id = id; this.name = name; }
         @Override public String toString() { return (id == null ? "None" : name + " (" + id + ")"); }
     }
+
+    // allow only digits (no minus, no letters). Empty string allowed.
+private static void installCapacityFilter(final JTextField fld) {
+    AbstractDocument doc = (AbstractDocument) fld.getDocument();
+    doc.setDocumentFilter(new DocumentFilter() {
+        private String filterDigits(String s) {
+            if (s == null) return null;
+            StringBuilder b = new StringBuilder();
+            for (char c : s.toCharArray()) if (Character.isDigit(c)) b.append(c);
+            return b.toString();
+        }
+        @Override
+        public void insertString(FilterBypass fb, int offset, String string, AttributeSet attr) throws BadLocationException {
+            super.insertString(fb, offset, filterDigits(string), attr);
+        }
+        @Override
+        public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
+            super.replace(fb, offset, length, filterDigits(text), attrs);
+        }
+    });
+}
+
 
     // ------------------ Courses ------------------
     private void loadCourses() {
@@ -617,23 +644,49 @@ private void addSection() {
 
     if (selectedCourse == null) { JOptionPane.showMessageDialog(this, "Select a course"); return; }
 
+    // --- validate capacity (must be integer >= 0) ---
     final Integer capVal;
-    if (capStr.isEmpty()) capVal = null;
-    else {
-        try { capVal = Integer.parseInt(capStr); } catch (NumberFormatException ex) { JOptionPane.showMessageDialog(this, "Invalid capacity"); return; }
+    if (capStr.isEmpty()) {
+        capVal = null;
+    } else {
+        Integer tmp;
+        try {
+            tmp = Integer.parseInt(capStr);
+            if (tmp < 0) {
+                JOptionPane.showMessageDialog(this, "Capacity cannot be negative.", "Validation error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Invalid capacity. Enter a whole number.", "Validation error", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        capVal = tmp;
     }
 
+    // --- validate year (optional but if present must be reasonable) ---
     final Integer yearVal;
-    if (yearStr.isEmpty()) yearVal = null;
-    else {
-        try { yearVal = Integer.parseInt(yearStr); } catch (NumberFormatException ex) { JOptionPane.showMessageDialog(this, "Invalid year"); return; }
+    if (yearStr.isEmpty()) {
+        yearVal = null;
+    } else {
+        Integer tmp;
+        try {
+            tmp = Integer.parseInt(yearStr);
+            if (tmp < 1900 || tmp > 2100) {
+                JOptionPane.showMessageDialog(this, "Enter a valid year between 1900 and 2100.", "Validation error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Invalid year. Enter a number like 2024.", "Validation error", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        yearVal = tmp;
     }
 
     final Long instrId = (selectedInstructor == null || selectedInstructor.id == null) ? null : selectedInstructor.id;
     final long courseId = selectedCourse.id;
 
-    // --- CRITICAL: capture spinner value here (snapshot) so the worker doesn't need to access field directly ---
-    final Object spinnerSnapshot = spDropDeadline.getValue(); // <-- capture BEFORE SwingWorker
+    // capture spinner snapshot here so background thread doesn't access UI components directly
+    final Object spinnerSnapshot = spDropDeadline == null ? null : spDropDeadline.getValue();
 
     btnSectionAdd.setEnabled(false);
 
@@ -667,11 +720,11 @@ private void addSection() {
                 if (yearVal == null) ps.setNull(idx++, Types.INTEGER);
                 else ps.setInt(idx++, yearVal);
 
-                // --- DATE-ONLY drop_deadline handling (use spinnerSnapshot) ---
+                // drop_deadline: store DATE only (if spinnerSnapshot holds a Date)
                 if (spinnerSnapshot instanceof java.util.Date) {
                     java.util.Date dt = (java.util.Date) spinnerSnapshot;
                     LocalDate localDate = dt.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
-                    ps.setDate(idx++, java.sql.Date.valueOf(localDate)); // store DATE only (no time)
+                    ps.setDate(idx++, java.sql.Date.valueOf(localDate));
                 } else {
                     ps.setNull(idx++, Types.DATE);
                 }
@@ -698,6 +751,7 @@ private void addSection() {
         }
     }.execute();
 }
+
 
     // ------------------- Inner dialog for editing a single section -------------------
     // (unchanged from your version except spinner uses date-only editor format)
@@ -749,6 +803,10 @@ private void addSection() {
             row++;
             gc.gridx = 0; gc.gridy = row; p.add(new JLabel("Capacity:"), gc);
             gc.gridx = 1; p.add(txtCapacity, gc);
+            AdminCourseSectionPanel.installCapacityFilter(txtCapacity);
+
+            
+
 
             // Row 3 — Semester
             row++;
@@ -894,65 +952,112 @@ private void addSection() {
             }.execute();
         }
 
-        private void saveSection() {
-            final String dayTime = txtDayTime.getText().trim();
-            final String room = txtRoom.getText().trim();
-            final String cap = txtCapacity.getText().trim();
-            final String sem = txtSemester.getText().trim();
-            final String year = txtYear.getText().trim();
+private void saveSection() {
+    final String dayTime = txtDayTime.getText().trim();
+    final String room = txtRoom.getText().trim();
+    final String capStr = txtCapacity.getText().trim();
+    final String sem = txtSemester.getText().trim();
+    final String yearStr = txtYear.getText().trim();
 
-            final InstructorEntry selInstr = (InstructorEntry) cbInstructors.getSelectedItem();
-            final Long instrId = selInstr == null ? null : selInstr.id;
-
-            btnSave.setEnabled(false);
-
-            new SwingWorker<Void, Void>() {
-                Exception err = null;
-
-                @Override protected Void doInBackground() {
-                    String sql = "UPDATE sections SET day_time=?, room=?, capacity=?, semester=?, year=?, instructor_id=?, drop_deadline=?, updated_at=NOW() WHERE section_id=?";
-                    try (Connection conn = DBConnection.getErpConnection();
-                         PreparedStatement ps = conn.prepareStatement(sql)) {
-
-                        // 1..5
-                        if (dayTime.isEmpty()) ps.setNull(1, Types.VARCHAR); else ps.setString(1, dayTime);
-                        if (room.isEmpty()) ps.setNull(2, Types.VARCHAR); else ps.setString(2, room);
-                        if (cap.isEmpty()) ps.setNull(3, Types.INTEGER); else ps.setInt(3, Integer.parseInt(cap));
-                        if (sem.isEmpty()) ps.setNull(4, Types.VARCHAR); else ps.setString(4, sem);
-                        if (year.isEmpty()) ps.setNull(5, Types.INTEGER); else ps.setInt(5, Integer.parseInt(year));
-
-                        // 6 instructor
-                        if (instrId == null) ps.setNull(6, Types.BIGINT); else ps.setLong(6, instrId);
-
-                        // 7 drop_deadline (spinner provides Date; we convert to Timestamp at midnight-ish)
-                        Object spinVal = spDropDeadline.getValue();
-                        if (spinVal instanceof Date) {
-                            // use timestamp at spinner's date (time portion ignored by editor, but may carry system time)
-                            ps.setTimestamp(7, new Timestamp(((Date) spinVal).getTime()));
-                        } else {
-                            ps.setNull(7, Types.TIMESTAMP);
-                        }
-
-                        // 8 section id
-                        ps.setLong(8, sectionId);
-
-                        ps.executeUpdate();
-                    } catch (Exception ex) {
-                        err = ex;
-                    }
-                    return null;
-                }
-
-                @Override protected void done() {
-                    btnSave.setEnabled(true);
-                    if (err != null)
-                        JOptionPane.showMessageDialog(SectionEditorDialog.this,
-                                "Failed to save section: " + err.getMessage(),
-                                "Error", JOptionPane.ERROR_MESSAGE);
-                    else
-                        dispose();
-                }
-            }.execute();
+    // validate capacity (integer >= 0) on EDT before disabling button / starting background worker
+    final Integer capVal;
+    if (capStr.isEmpty()) {
+        capVal = null;
+    } else {
+        Integer tmp;
+        try {
+            tmp = Integer.parseInt(capStr);
+            if (tmp < 0) {
+                JOptionPane.showMessageDialog(SectionEditorDialog.this, "Capacity cannot be negative.", "Validation error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(SectionEditorDialog.this, "Capacity must be a whole non-negative number.", "Validation error", JOptionPane.WARNING_MESSAGE);
+            return;
         }
+        capVal = tmp;
+    }
+
+    // validate year (optional)
+    final Integer yearVal;
+    if (yearStr.isEmpty()) {
+        yearVal = null;
+    } else {
+        Integer tmp;
+        try {
+            tmp = Integer.parseInt(yearStr);
+            if (tmp < 1900 || tmp > 2100) {
+                JOptionPane.showMessageDialog(SectionEditorDialog.this, "Enter a valid year between 1900 and 2100.", "Validation error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(SectionEditorDialog.this, "Year must be a number.", "Validation error", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        yearVal = tmp;
+    }
+
+    final InstructorEntry selInstr = (InstructorEntry) cbInstructors.getSelectedItem();
+    final Long instrId = selInstr == null ? null : selInstr.id;
+
+    // snapshot spinner value (so background thread does not read UI)
+    final Object spinnerSnapshot = spDropDeadline == null ? null : spDropDeadline.getValue();
+
+    btnSave.setEnabled(false);
+
+    new SwingWorker<Void, Void>() {
+        Exception err = null;
+
+        @Override protected Void doInBackground() {
+            String sql = "UPDATE sections SET day_time=?, room=?, capacity=?, semester=?, year=?, instructor_id=?, drop_deadline=?, updated_at=NOW() WHERE section_id=?";
+            try (Connection conn = DBConnection.getErpConnection();
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+
+                // 1 day_time
+                if (dayTime.isEmpty()) ps.setNull(1, Types.VARCHAR); else ps.setString(1, dayTime);
+                // 2 room
+                if (room.isEmpty()) ps.setNull(2, Types.VARCHAR); else ps.setString(2, room);
+                // 3 capacity
+                if (capVal == null) ps.setNull(3, Types.INTEGER); else ps.setInt(3, capVal);
+                // 4 semester
+                if (sem.isEmpty()) ps.setNull(4, Types.VARCHAR); else ps.setString(4, sem);
+                // 5 year
+                if (yearVal == null) ps.setNull(5, Types.INTEGER); else ps.setInt(5, yearVal);
+                // 6 instructor_id
+                if (instrId == null) ps.setNull(6, Types.BIGINT); else ps.setLong(6, instrId);
+
+                // 7 drop_deadline: store date / timestamp from spinner snapshot
+                if (spinnerSnapshot instanceof java.util.Date) {
+                    java.util.Date dt = (java.util.Date) spinnerSnapshot;
+                    // use date-only if your DB column is DATE; if TIMESTAMP keep Timestamp:
+                    // If your DB column is TIMESTAMP use: ps.setTimestamp(7, new Timestamp(dt.getTime()));
+                    ps.setTimestamp(7, new Timestamp(dt.getTime()));
+                } else {
+                    ps.setNull(7, Types.TIMESTAMP);
+                }
+
+                // 8 section id
+                ps.setLong(8, sectionId);
+
+                ps.executeUpdate();
+
+            } catch (Exception ex) {
+                err = ex;
+            }
+            return null;
+        }
+
+        @Override protected void done() {
+            btnSave.setEnabled(true);
+            if (err != null)
+                JOptionPane.showMessageDialog(SectionEditorDialog.this,
+                        "Failed to save section: " + err.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
+            else
+                dispose();
+        }
+    }.execute();
+}
+
     }
 }

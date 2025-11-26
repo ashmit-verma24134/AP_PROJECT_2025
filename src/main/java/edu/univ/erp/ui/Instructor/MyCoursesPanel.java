@@ -29,7 +29,7 @@ public class MyCoursesPanel extends JPanel {
     private final JComboBox<String> semesterFilter;
     private final JTable table;
     private final JTextField searchField;
-    private final JLabel maintenanceBanner;
+    // removed panel-level banner: maintenanceBanner
 
     // state for the current load
     private long currentInstructorId = 0L;
@@ -52,20 +52,10 @@ public class MyCoursesPanel extends JPanel {
 
         headerPanel.add(title, BorderLayout.WEST);
 
-        // maintenance banner (hidden by default)
-        maintenanceBanner = new JLabel("MAINTENANCE MODE: system is read-only", SwingConstants.CENTER);
-        maintenanceBanner.setOpaque(true);
-        maintenanceBanner.setBackground(new Color(200, 50, 50));
-        maintenanceBanner.setForeground(Color.WHITE);
-        maintenanceBanner.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        maintenanceBanner.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
-        maintenanceBanner.setVisible(false);
-
-        // top container
+        // top container (no per-panel maintenance banner)
         JPanel top = new JPanel(new BorderLayout());
         top.setBackground(Theme.PRIMARY);
         top.add(headerPanel, BorderLayout.NORTH);
-        top.add(maintenanceBanner, BorderLayout.SOUTH);
 
         add(top, BorderLayout.NORTH);
 
@@ -274,7 +264,7 @@ public class MyCoursesPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             model.setRowCount(0);
             model.addRow(new Object[]{"—", "Loading...", "—", "-", "-", 0, 0});
-            maintenanceBanner.setVisible(false);
+            // no per-panel banner to hide
         });
 
         new SwingWorker<List<SectionRow>, Void>() {
@@ -299,8 +289,7 @@ public class MyCoursesPanel extends JPanel {
                     model.setRowCount(0);
                     model.addRow(new Object[]{"—", "Failed to load: " + error.getMessage(), "—", "-", "-", 0, 0});
                     error.printStackTrace();
-                    // show maintenance banner if DAO says so (best effort)
-                    maintenanceBanner.setVisible(maintenanceOn);
+                    // toggle read-only (no banner)
                     toggleReadOnly(maintenanceOn);
                     return;
                 }
@@ -348,8 +337,7 @@ public class MyCoursesPanel extends JPanel {
                         semesterFilter.setModel(comboModel);
                     }
 
-                    // show maintenance banner & toggle read-only state
-                    maintenanceBanner.setVisible(maintenanceOn);
+                    // toggle read-only state (no panel-level banner)
                     toggleReadOnly(maintenanceOn);
 
                     // apply filters (keep previous search/semester selection)
@@ -366,11 +354,9 @@ public class MyCoursesPanel extends JPanel {
 
     /** Toggles read-only visuals/interaction when maintenance is ON */
     private void toggleReadOnly(boolean readOnly) {
-        // show/hide banner already done by caller. Additional effects:
+        // Do not show any panel-level banner here; that is handled by MainFrame/global UI.
         table.setEnabled(!readOnly);
         searchField.setEnabled(!readOnly);
         semesterFilter.setEnabled(!readOnly);
-        // make header banner prominent when readOnly
-        maintenanceBanner.setVisible(readOnly);
     }
 }

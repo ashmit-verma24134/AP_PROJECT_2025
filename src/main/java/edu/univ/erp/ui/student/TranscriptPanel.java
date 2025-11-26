@@ -170,20 +170,20 @@ String sql = """
     JOIN sections s ON s.section_id = e.section_id
     JOIN courses c ON c.course_id = s.course_id
     LEFT JOIN (
+        /* pick the most recent grades row per enrollment that actually has a final_grade */
         SELECT gr.enrollment_id,
                gr.final_grade,
-               gr.created_at
+               COALESCE(gr.computed_at, gr.created_at) AS ts
         FROM grades gr
-        JOIN (
-            SELECT enrollment_id, MAX(created_at) AS max_created
-            FROM grades
-            GROUP BY enrollment_id
-        ) grp ON grp.enrollment_id = gr.enrollment_id AND grp.max_created = gr.created_at
+        WHERE gr.final_grade IS NOT NULL
+          AND gr.enrollment_id IS NOT NULL
     ) g2 ON g2.enrollment_id = e.enrollment_id
     WHERE e.student_id = ?
       AND e.status IN ('ENROLLED','COMPLETED')
-    ORDER BY s.year DESC, c.code ASC
+    /* prefer newest semester/year first then course code */
+    ORDER BY s.year DESC, s.semester DESC, c.code ASC
 """;
+
 
 
 

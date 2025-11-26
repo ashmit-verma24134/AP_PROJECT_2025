@@ -1,128 +1,137 @@
 package edu.univ.erp.ui.Instructor;
 
+import edu.univ.erp.service.AuthService;
 import edu.univ.erp.ui.MainFrame;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
 import edu.univ.erp.util.DBConnection;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.sql.Connection;
 
 /**
- * InstructorPanel – fixed and cleaned version.
- * - exposes setInstructorContext(instructorId, term, username)
- * - uses DashboardPanel and InstructorGradebookPanel with the new context calls
- * - keeps previous navigation behavior
+ * InstructorPanel — integrated version with maintenance-aware Change Password blocking
+ * and maintenance banner styled like Admin/Student panels (light, centered).
  */
 public class InstructorPanel extends JPanel {
     private final MainFrame mainFrame;
+
+    // UI regions
     private final JPanel navPanel = new JPanel(null);
     private final JPanel navButtonsContainer = new JPanel();
     private final JPanel cards = new JPanel(new CardLayout());
 
+    // top-level maintenance banner (visible under header) — styled like student/admin panels
+    private final JPanel maintenanceBanner = new JPanel(new BorderLayout());
+
+    // nav button stored as a field so maintenance updater can enable/disable it if needed
+    private JButton btnGradebook;
+
     // Panels (existing classes)
-    private final DashboardPanel dashboardPanel = new DashboardPanel();
     private final MyCoursesPanel coursesPanel = new MyCoursesPanel(); // instructor-side MyCoursesPanel
     private final InstructorGradebookPanel gradebookPanel = new InstructorGradebookPanel();
-    private final JPanel timetablePanel = new InstructorTimetablePanel();
     private final JPanel notificationsPanel = new NotificationPanel();
 
-    private final JPanel announcementsPanel = createPlaceholderPanel("📢 Announcements - Post or view messages");
-    private final JPanel profilePanel = createPlaceholderPanel("👤 Profile - Manage personal information");
 
     // context
     private long currentInstructorId = 0L;
     private String currentTerm = null;
     private String instructorUsername = "Instructor";
+    private String instructorAuthUsername = null; // used by change-password flow
+
+    // header elements that need runtime update
+    private final JLabel welcomeLabel = new JLabel("Welcome, Instructor");
+
+    // change-password button promoted to a field so maintenance toggles can control it
+    private JButton changePasswordBtn;
 
     public InstructorPanel(MainFrame mainFrame) {
         this.mainFrame = mainFrame;
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
-        // header
+        // ----- Header -----
         JPanel headerWrap = new JPanel(new BorderLayout());
         headerWrap.setBackground(Theme.PRIMARY);
         headerWrap.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
-        JLabel welcomeLabel = new JLabel("Welcome, Instructor");
         welcomeLabel.setFont(Theme.TITLE_FONT);
         welcomeLabel.setForeground(Color.WHITE);
         headerWrap.add(welcomeLabel, BorderLayout.WEST);
 
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         rightPanel.setOpaque(false);
-        JButton changePassword = new JButton("Change Password");
-        changePassword.setBackground(new Color(255, 255, 255, 180));
-        changePassword.setForeground(Theme.PRIMARY);
-        changePassword.setFocusPainted(false);
-        changePassword.addActionListener(e -> {
-            // delegate to dashboardPanel's dialog or AuthService.changePassword(...) integration
-            JOptionPane.showMessageDialog(this, "Use Change Password in header (not implemented here).");
-        });
+
+        // create changePasswordBtn as a field
+        changePasswordBtn = new JButton("Change Password");
+        changePasswordBtn.setBackground(new Color(255, 255, 255, 180));
+        changePasswordBtn.setForeground(Theme.PRIMARY);
+        changePasswordBtn.setFocusPainted(false);
+        changePasswordBtn.addActionListener(e -> showChangePasswordDialog());
+
         JButton logout = new JButton("Logout");
         logout.setBackground(Color.WHITE);
         logout.setForeground(Theme.PRIMARY);
         logout.setFocusPainted(false);
         logout.addActionListener(e -> mainFrame.showCard("login"));
-        rightPanel.add(changePassword);
+
+        rightPanel.add(changePasswordBtn);
         rightPanel.add(logout);
         headerWrap.add(rightPanel, BorderLayout.EAST);
-        add(headerWrap, BorderLayout.NORTH);
 
-        // sidebar
+        // Header + Banner wrapper
+        JPanel headerAndBanner = new JPanel(new BorderLayout());
+        headerAndBanner.add(headerWrap, BorderLayout.NORTH);
+
+        // ----- Maintenance banner (styled like Admin/Student) -----
+        // Light background, central small icon and darker text — matches other panels' UI
+        maintenanceBanner.setBackground(new Color(254, 246, 243)); // light/beige-ish
+        maintenanceBanner.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        JLabel mLabel = new JLabel("<html>&#x26A0;&nbsp;<b>Site is in Maintenance Mode — contents are view-only.</b></html>", SwingConstants.CENTER);
+        mLabel.setForeground(new Color(117, 40, 24)); // dark/brownish text
+        mLabel.setFont(Theme.BODY_BOLD);
+        mLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        maintenanceBanner.add(mLabel, BorderLayout.CENTER);
+        maintenanceBanner.setVisible(false); // hidden initially
+        headerAndBanner.add(maintenanceBanner, BorderLayout.SOUTH);
+
+        add(headerAndBanner, BorderLayout.NORTH);
+
+        // ----- Sidebar -----
         navPanel.setPreferredSize(new Dimension(Theme.SIDEBAR_WIDTH, 0));
         navPanel.setBackground(Theme.SIDEBAR_BG);
         navButtonsContainer.setLayout(new BoxLayout(navButtonsContainer, BoxLayout.Y_AXIS));
         navButtonsContainer.setOpaque(false);
         navButtonsContainer.setBounds(0, 16, Theme.SIDEBAR_WIDTH, 600);
 
-        JButton btnDashboard = makeNavButton("Dashboard");
         JButton btnCourses = makeNavButton("My Courses");
-        JButton btnGradebook = makeNavButton("Gradebook");
-        JButton btnTimetable = makeNavButton("Timetable");
+        btnGradebook = makeNavButton("Gradebook"); // assign to field
         JButton btnNotifications = makeNavButton("Notifications");
 
-        JButton btnAnnouncements = makeNavButton("Announcements");
-        JButton btnProfile = makeNavButton("Profile");
-
         navButtonsContainer.add(Box.createVerticalStrut(12));
-        navButtonsContainer.add(btnDashboard);
         navButtonsContainer.add(Box.createVerticalStrut(8));
         navButtonsContainer.add(btnCourses);
         navButtonsContainer.add(Box.createVerticalStrut(8));
         navButtonsContainer.add(btnGradebook);
         navButtonsContainer.add(Box.createVerticalStrut(8));
-        navButtonsContainer.add(btnNotifications);  // <-- ADD THIS
-
-        navButtonsContainer.add(btnTimetable);
+        navButtonsContainer.add(btnNotifications);
         navButtonsContainer.add(Box.createVerticalStrut(8));
-        navButtonsContainer.add(btnAnnouncements);
         navButtonsContainer.add(Box.createVerticalStrut(8));
-        navButtonsContainer.add(btnProfile);
+        navButtonsContainer.add(Box.createVerticalStrut(8));
         navButtonsContainer.add(Box.createVerticalGlue());
 
         navPanel.add(navButtonsContainer);
         add(navPanel, BorderLayout.WEST);
 
-        // cards
+        // ----- Cards -----
         cards.setBackground(Theme.BACKGROUND);
-
-        // wrap existing panels consistently
-        cards.add(wrapInPadding(dashboardPanel), "dashboard");
+        // wrap children in consistent rounded surface
         cards.add(wrapInPadding(coursesPanel), "courses");
         cards.add(wrapInPadding(gradebookPanel), "gradebook");
-        cards.add(wrapInPadding(timetablePanel), "timetable");
         cards.add(wrapInPadding(notificationsPanel), "notifications");
-
-        cards.add(wrapInPadding(announcementsPanel), "announcements");
-        cards.add(wrapInPadding(profilePanel), "profile");
-
         add(cards, BorderLayout.CENTER);
 
-        // navigation actions
-        btnDashboard.addActionListener(e -> { setNavActive(btnDashboard); showCard("dashboard"); });
+        // ----- Navigation actions -----
+
         btnCourses.addActionListener(e -> {
             setNavActive(btnCourses);
             if (currentInstructorId > 0) coursesPanel.loadForInstructor(currentInstructorId, currentTerm);
@@ -133,19 +142,25 @@ public class InstructorPanel extends JPanel {
             gradebookPanel.setInstructorContext(currentInstructorId, currentTerm);
             showCard("gradebook");
         });
-        btnTimetable.addActionListener(e -> { setNavActive(btnTimetable); showCard("timetable");});
+  
         btnNotifications.addActionListener(e -> {
-    setNavActive(btnNotifications);
-    showCard("notifications");
-});
-
-        btnAnnouncements.addActionListener(e -> { setNavActive(btnAnnouncements); showCard("announcements");});
-        btnProfile.addActionListener(e -> { setNavActive(btnProfile); showCard("profile");});
-
-        SwingUtilities.invokeLater(() -> {
-            setNavActive(btnDashboard);
-            showCard("dashboard");
+            setNavActive(btnNotifications);
+            showCard("notifications");
         });
+
+  
+
+        // Start maintenance poller (runs on EDT but cheap)
+        javax.swing.Timer maintenancePoller = new javax.swing.Timer(3000, e -> updateMaintenanceState());
+        maintenancePoller.setRepeats(true);
+        maintenancePoller.setInitialDelay(0);
+        maintenancePoller.start();
+
+        // initial UI state
+
+
+        // apply initial maintenance state immediately
+        updateMaintenanceState();
     }
 
     private JButton makeNavButton(String text) {
@@ -196,6 +211,39 @@ public class InstructorPanel extends JPanel {
         return panel;
     }
 
+    // Update banner + gradebook read-only behavior + change-password enable/disable
+    public void updateMaintenanceState() {
+        boolean maintenance = DBConnection.isMaintenanceMode();
+
+        // show/hide the global banner (top-level InstructorPanel banner)
+        maintenanceBanner.setVisible(maintenance);
+
+        // Block change-password when maintenance is ON
+        try {
+            if (changePasswordBtn != null) {
+                changePasswordBtn.setEnabled(!maintenance);
+                changePasswordBtn.setToolTipText(maintenance
+                        ? "Disabled during maintenance"
+                        : "Change your account password");
+            }
+        } catch (Throwable ignored) {}
+
+        // Do NOT disable Gradebook nav — we let it be viewable; gradebook enforces read-only
+        try {
+            if (maintenance) {
+                gradebookPanel.setEditable(false); // enforce read-only in gradebook
+            } else {
+                gradebookPanel.refreshForMaintenance(); // allow gradebook to restore its editable state
+            }
+        } catch (Throwable ignored) {}
+
+        // repaint UI
+        SwingUtilities.invokeLater(() -> {
+            maintenanceBanner.revalidate();
+            maintenanceBanner.repaint();
+        });
+    }
+
     /**
      * Set context after login. This is the single authoritative method panel consumers should call.
      *
@@ -207,30 +255,81 @@ public class InstructorPanel extends JPanel {
         this.currentInstructorId = instructorId;
         this.currentTerm = term;
         this.instructorUsername = (username == null || username.isBlank()) ? "Instructor" : username;
+        // update header label
+        welcomeLabel.setText("Welcome, " + this.instructorUsername);
 
-        // update dashboard welcome text and load dashboard content
-        dashboardPanel.setInstructorContext(instructorId, this.instructorUsername);
-
-        // also tell gradebook & courses panels
-        gradebookPanel.setInstructorContext(instructorId, term);
-        coursesPanel.loadForInstructor(instructorId, term);
+        // propagate to children
         try {
-    if (notificationsPanel instanceof NotificationPanel) {
-        ((NotificationPanel) notificationsPanel).setInstructorContext(instructorId, term);
-    }
-} catch (Exception ignored) {}
+        } catch (Throwable ignored) {}
+        try {
+            gradebookPanel.setInstructorContext(instructorId, term);
+        } catch (Throwable ignored) {}
+        try {
+            coursesPanel.loadForInstructor(instructorId, term);
+        } catch (Throwable ignored) {}
+        try {
+            if (notificationsPanel instanceof NotificationPanel) {
+                ((NotificationPanel) notificationsPanel).setInstructorContext(instructorId, term);
+            }
+        } catch (Exception ignored) {}
 
+        // ensure maintenance applied now that context changed
+        updateMaintenanceState();
     }
 
     public void setInstructorContext(long instructorId, String username) {
         setInstructorContext(instructorId, null, username);
     }
 
-    public void refreshDashboardStats() {
-    try {
-        if (currentInstructorId > 0)
-            dashboardPanel.setInstructorContext(currentInstructorId, instructorUsername);
-    } catch (Exception ignored) {}
-}
+    // used by MainFrame/login to provide auth username for change-password
+    public void setAuthUsername(String username) {
+        this.instructorAuthUsername = username;
+    }
 
+    private void showChangePasswordDialog() {
+        // guard against maintenance mode
+        if (DBConnection.isMaintenanceMode()) {
+            JOptionPane.showMessageDialog(this,
+                    "Password changes are not allowed while the system is under maintenance.",
+                    "Maintenance Active", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        if (instructorAuthUsername == null) {
+            JOptionPane.showMessageDialog(this,
+                    "Auth user not set. Contact admin.");
+            return;
+        }
+
+        JPasswordField oldPass = new JPasswordField();
+        JPasswordField newPass = new JPasswordField();
+        JPasswordField confirmPass = new JPasswordField();
+
+        Object[] form = {
+                "Current Password:", oldPass,
+                "New Password:", newPass,
+                "Confirm New Password:", confirmPass
+        };
+
+        int ok = JOptionPane.showConfirmDialog(
+                this, form, "Change Password", JOptionPane.OK_CANCEL_OPTION);
+
+        if (ok != JOptionPane.OK_OPTION) return;
+
+        String oldP = new String(oldPass.getPassword());
+        String newP = new String(newPass.getPassword());
+        String confP = new String(confirmPass.getPassword());
+
+        if (!newP.equals(confP)) {
+            JOptionPane.showMessageDialog(this, "New passwords do not match.");
+            return;
+        }
+
+        boolean success = AuthService.changePassword(instructorAuthUsername, oldP, newP);
+
+        if (success)
+            JOptionPane.showMessageDialog(this, "Password changed successfully!");
+        else
+            JOptionPane.showMessageDialog(this, "Old password incorrect.");
+    }
 }

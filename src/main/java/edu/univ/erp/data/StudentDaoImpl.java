@@ -9,8 +9,10 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * Concrete DAO that uses the ERP schema.
- * Updated: drop_deadline is returned as date-only string (yyyy-MM-dd or "N/A")
- * and each current-course row includes drop_allowed boolean.
+ * - Consolidated/merged version covering functionality from both provided files.
+ * - drop_deadline is returned as date-only string (yyyy-MM-dd or "N/A")
+ * - each current-course row includes drop_allowed boolean.
+ * - Numeric or string studentId is accepted consistently across methods.
  */
 public class StudentDaoImpl implements StudentDao {
     private final Connection conn;
@@ -32,6 +34,9 @@ public class StudentDaoImpl implements StudentDao {
         }
     }
 
+    /**
+     * Returns overview: enrolled_count, total_credits, cgpa, attendance_percent, pending_fees
+     */
     @Override
     public Map<String, Object> getStudentOverview(String studentId) throws java.sql.SQLException {
         Map<String, Object> out = new HashMap<>();
@@ -45,7 +50,10 @@ public class StudentDaoImpl implements StudentDao {
             "WHERE e.student_id = ? AND e.status = 'ENROLLED'";
 
         try (PreparedStatement ps = conn.prepareStatement(qEnroll)) {
-            ps.setString(1, studentId);
+            // normalize binding: allow numeric or string id
+            try { ps.setLong(1, Long.parseLong(studentId)); }
+            catch (NumberFormatException ex) { ps.setString(1, studentId); }
+
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     out.put("enrolled_count", rs.getInt("enrolled_count"));
@@ -79,7 +87,10 @@ public class StudentDaoImpl implements StudentDao {
             "WHERE gmap.points IS NOT NULL";
 
         try (PreparedStatement ps = conn.prepareStatement(qCgpa)) {
-            ps.setString(1, studentId);
+            // normalize binding: allow numeric or string id
+            try { ps.setLong(1, Long.parseLong(studentId)); }
+            catch (NumberFormatException ex) { ps.setString(1, studentId); }
+
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     Double cg = rs.getObject("cgpa") == null ? null : rs.getDouble("cgpa");

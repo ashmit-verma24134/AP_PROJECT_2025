@@ -30,20 +30,34 @@ public class DBConnection {
         return DriverManager.getConnection(URL, USER, PASSWORD);
     }
 
-    public static boolean isMaintenanceMode() {
+public static boolean isMaintenanceMode() {
+    String sql = "SELECT `value` FROM settings WHERE `key` = 'maintenance_on' LIMIT 1";
     try (Connection conn = getErpConnection();
-         PreparedStatement ps = conn.prepareStatement(
-                "SELECT setting_value FROM system_settings WHERE setting_key='maintenance_mode' LIMIT 1"
-         );
+         PreparedStatement ps = conn.prepareStatement(sql);
          ResultSet rs = ps.executeQuery()) {
 
+        String dbUrl = "unknown";
+        try { dbUrl = conn.getMetaData().getURL(); } catch (Exception ignore) {}
+
         if (rs.next()) {
-            return "ON".equalsIgnoreCase(rs.getString(1));
+            String v = rs.getString(1);
+            if (v == null) v = "null";
+            String norm = v.trim().toLowerCase();
+            boolean result = norm.equals("true") || norm.equals("1") || norm.equals("yes") || norm.equals("on");
+
+            // DEBUG: prints what we read (remove when everything is working)
+            System.out.println("[DBDEBUG] isMaintenanceMode() -> raw='" + v + "' norm='" + norm +
+                               "' result=" + result + " dbUrl=" + dbUrl + " time=" + new java.util.Date());
+
+            return result;
+        } else {
+            System.out.println("[DBDEBUG] isMaintenanceMode() -> no row found in settings (dbUrl=" + dbUrl + ")");
         }
-    } catch (Exception e) {
-        e.printStackTrace();
+    } catch (Exception ex) {
+        ex.printStackTrace();
     }
     return false;
 }
+
 
 }

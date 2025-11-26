@@ -5,6 +5,7 @@ import edu.univ.erp.ui.MainFrame;
 import edu.univ.erp.ui.Theme;
 import edu.univ.erp.data.SettingsDao;
 import edu.univ.erp.data.SettingsDaoImpl;
+import edu.univ.erp.service.AuthService;
 import edu.univ.erp.util.DBConnection;
 
 import javax.swing.*;
@@ -12,6 +13,8 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -30,10 +33,11 @@ public class AdminPanel extends JPanel {
 
     // maintenance banner shown under header
     private final JLabel maintenanceBanner = new JLabel("", SwingConstants.CENTER);
-    
-    // ✅ Add these fields at class level
+
+    // UI refs / auth state
     private String adminUsername = "Admin";
-    private JLabel welcomeLabel; // Store reference to update later
+    private JLabel welcomeLabel;
+    private long currentAdminUserId = -1;
 
     public AdminPanel(MainFrame mainFrame) {
         this.mainFrame = mainFrame;
@@ -44,7 +48,7 @@ public class AdminPanel extends JPanel {
         initSidebarAndContent();
         registerDefaultPages();
 
-        // show Users (or first page) by default if available
+        // show first page by default
         if (!pages.isEmpty()) {
             String first = pages.keySet().iterator().next();
             showCard(first);
@@ -61,7 +65,6 @@ public class AdminPanel extends JPanel {
         header.setBorder(new EmptyBorder(8, Theme.PADDING_X, 8, Theme.PADDING_X));
         header.setPreferredSize(new Dimension(0, 56));
 
-        // ✅ Create title and welcome label
         JLabel title = new JLabel("✨ IIITD Portal—Admin ERP");
         title.setFont(Theme.HEADER_FONT);
         title.setForeground(Color.WHITE);
@@ -76,6 +79,14 @@ public class AdminPanel extends JPanel {
         titlePanel.add(title);
         titlePanel.add(welcomeLabel);
 
+        JButton changePassword = new JButton("Change Password");
+        changePassword.setBackground(Theme.PRIMARY_DARK);
+        changePassword.setForeground(Color.WHITE);
+        changePassword.setFocusPainted(false);
+        changePassword.setFont(Theme.BODY_BOLD);
+        changePassword.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+        changePassword.addActionListener(e -> showChangePasswordDialog());
+
         JButton logout = new JButton("Logout");
         logout.setBackground(Theme.PRIMARY_DARK);
         logout.setForeground(Color.WHITE);
@@ -83,15 +94,14 @@ public class AdminPanel extends JPanel {
         logout.setFont(Theme.BODY_BOLD);
         logout.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
         logout.setToolTipText("Logout and return to login (Alt+L)");
-        logout.addActionListener(e -> {
-            mainFrame.showCard("login");
-        });
+        logout.addActionListener(e -> mainFrame.showCard("login"));
         logout.setMnemonic(KeyEvent.VK_L);
 
         header.add(titlePanel, BorderLayout.WEST);
 
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 4));
         right.setOpaque(false);
+        right.add(changePassword);
         right.add(logout);
         header.add(right, BorderLayout.EAST);
 
@@ -239,6 +249,99 @@ public class AdminPanel extends JPanel {
         this.adminUsername = username == null ? "Admin" : username;
         if (welcomeLabel != null) {
             welcomeLabel.setText("Welcome, " + this.adminUsername);
+        }
+    }
+
+    /**
+     * Set the admin user id (auth DB user_id) and attempt to resolve username for display.
+     */
+    public void setAdminUserId(long uid) {
+        this.currentAdminUserId = uid;
+        try {
+            String uname = getAuthUsername(uid);
+            if (uname != null && !uname.isBlank()) {
+                setAdminUsername(uname);
+            }
+        } catch (Exception ex) {
+            // ignore - leave existing username in place
+            ex.printStackTrace();
+        }
+    }
+
+    // -------------------- DB helpers --------------------
+    private String getAuthUsername(long userId) {
+        try (Connection conn = DBConnection.getAuthConnection()) {
+            String q = "SELECT username FROM users WHERE user_id = ? LIMIT 1";
+            try (PreparedStatement ps = conn.prepareStatement(q)) {
+                ps.setLong(1, userId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getString("username");
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        return null;
+    }
+
+    private long getErpUserIdForAdmin(String adminEmail) {
+        try (Connection conn = DBConnection.getErpConnection()) {
+            String q = "SELECT id FROM users WHERE email = ? LIMIT 1";
+            try (PreparedStatement ps = conn.prepareStatement(q)) {
+                ps.setString(1, adminEmail);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        return rs.getLong("id");
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        return -1;
+    }
+
+    // -------------------- Change password --------------------
+    private void showChangePasswordDialog() {
+        JPasswordField oldPass = new JPasswordField();
+        JPasswordField newPass = new JPasswordField();
+        JPasswordField confirmPass = new JPasswordField();
+
+        Object[] form = {
+            "Current Password:", oldPass,
+            "New Password:", newPass,
+            "Confirm New Password:", confirmPass
+        };
+
+        int ok = JOptionPane.showConfirmDialog(this, form, "Change Password", JOptionPane.OK_CANCEL_OPTION);
+        if (ok != JOptionPane.OK_OPTION) return;
+
+        String oldP = new String(oldPass.getPassword());
+        String newP = new String(newPass.getPassword());
+        String confP = new String(confirmPass.getPassword());
+
+        if (!newP.equals(confP)) {
+            JOptionPane.showMessageDialog(this, "New passwords don't match!");
+            return;
+        }
+
+        try {
+            boolean success = AuthService.changePassword(
+                    adminUsername,
+                    oldP,
+                    newP
+            );
+
+            if (success)
+                JOptionPane.showMessageDialog(this, "Password changed successfully!");
+            else
+                JOptionPane.showMessageDialog(this, "Old password incorrect.");
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            JOptionPane.showMessageDialog(this, "Failed to change password: " + ex.getMessage());
         }
     }
 }

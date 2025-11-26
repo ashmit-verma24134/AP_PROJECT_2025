@@ -38,6 +38,7 @@ public class InstructorGradebookPanel extends JPanel {
     private final JButton btnRefreshSections = new JButton("Refresh Sections");
     private final JButton btnLoad = new JButton("Load Section");
     private final JButton btnSave = new JButton("Save Changes");
+    
     private final JButton btnCompute = new JButton("Compute Final");
     private final JButton btnExport = new JButton("Export CSV");
     private final JButton btnImport = new JButton("Import CSV");
@@ -48,6 +49,10 @@ public class InstructorGradebookPanel extends JPanel {
 
     private final GradeTableModel tableModel = new GradeTableModel();
     private final JTable table = new JTable(tableModel);
+    // right side stats/chart panel
+private final StatsChartPanel statsChartPanel = new StatsChartPanel();
+private final JPanel statsContainer = new JPanel(new BorderLayout());
+
 
     // current loaded data
     private long currentSectionId = -1;
@@ -88,10 +93,20 @@ Double maxScore = null;
         add(top, BorderLayout.NORTH);
 
         // Table area
-        table.setFillsViewportHeight(true);
-        JScrollPane sp = new JScrollPane(table);
-        sp.setBorder(BorderFactory.createCompoundBorder(new EmptyBorder(8, 8, 8, 8), sp.getBorder()));
-        add(sp, BorderLayout.CENTER);
+// Table area + stats panel in a split pane
+table.setFillsViewportHeight(true);
+JScrollPane sp = new JScrollPane(table);
+sp.setBorder(BorderFactory.createCompoundBorder(new EmptyBorder(8, 8, 8, 8), sp.getBorder()));
+
+statsContainer.setBorder(new EmptyBorder(8,8,8,8));
+statsContainer.add(statsChartPanel, BorderLayout.CENTER);
+
+// split pane: left = table, right = stats+chart
+JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sp, statsContainer);
+split.setResizeWeight(0.75); // table gets 75% width
+split.setOneTouchExpandable(true);
+add(split, BorderLayout.CENTER);
+
 
         // Bottom: status + stats
         JPanel bottom = new JPanel(new BorderLayout());
@@ -144,14 +159,23 @@ Double maxScore = null;
         statusLabel.setText(s);
     }
 
-    private void setEditable(boolean e) {
-        this.editable = e;
-        tableModel.setEditable(e);
-        table.setEnabled(e);
-        btnSave.setEnabled(e);
-        btnImport.setEnabled(e);
-        btnAddComponent.setEnabled(e);
-    }
+// public so InstructorPanel can force it
+public void setEditable(boolean e) {
+    this.editable = e;
+    tableModel.setEditable(e);
+    boolean enabled = e && !DBConnection.isMaintenanceMode();
+    table.setEnabled(enabled);
+    btnSave.setEnabled(enabled);
+    btnImport.setEnabled(enabled);
+    btnAddComponent.setEnabled(enabled);
+}
+
+// refresh hook: re-apply stored editable using setEditable (which respects maintenance)
+public void refreshForMaintenance() {
+    setEditable(this.editable);
+}
+
+
 
     // ---- Load sections taught by instructor (async) ----
     private void loadSectionsForInstructorAsync() {
@@ -300,46 +324,86 @@ Double maxScore = null;
                     }
 
                     // --- load existing scores from grade_components for all enrollments & components we fetched ---
-                    if (!rows.isEmpty() && !comps.isEmpty()) {
-                        String enrollIn = rows.stream().map(r -> String.valueOf(r.enrollmentId)).collect(Collectors.joining(","));
-                        String compIn = comps.stream().map(c -> String.valueOf(c.componentId)).collect(Collectors.joining(","));
-                        String q = "SELECT gc.enrollment_id, gc.component_id, gc.score "
-                                + "FROM grade_components gc "
-                                + "WHERE gc.enrollment_id IN (" + enrollIn + ") AND gc.component_id IN (" + compIn + ")";
-                        try (Statement s = conn.createStatement(); ResultSet rs = s.executeQuery(q)) {
-                            while (rs.next()) {
-                                long eid = rs.getLong("enrollment_id");
-                                long cid = rs.getLong("component_id");
-                                Double sc = rs.getObject("score") == null ? null : rs.getDouble("score");
-                                for (EnrollmentRow er : rows) {
-                                    if (er.enrollmentId == eid) {
-                                        er.setScore(cid, sc);
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
+// --- load existing scores: prefer grades (canonical) then fallback to grade_components ---
+if (!rows.isEmpty() && !comps.isEmpty()) {
+    // build enrollment list and component id/name maps
+    String enrollIn = rows.stream().map(r -> String.valueOf(r.enrollmentId)).collect(Collectors.joining(","));
+    Map<String, Long> nameToCompId = new HashMap<>();
+    String compNamesCsv = comps.stream()
+            .map(c -> {
+                // escape single quotes for SQL string literal
+                String escaped = c.name == null ? "" : c.name.replace("'", "''");
+                nameToCompId.put(c.name, c.componentId);
+                return "'" + escaped + "'";
+            })
+            .collect(Collectors.joining(","));
+    String compInNumeric = comps.stream().map(c -> String.valueOf(c.componentId)).collect(Collectors.joining(","));
 
-                    // Optional: load any existing 'final' rows from grades (component='__FINAL__') to show computedFinal
-                    if (!rows.isEmpty()) {
-                        String enrollIn = rows.stream().map(r -> String.valueOf(r.enrollmentId)).collect(Collectors.joining(","));
-                        String qFinal = "SELECT enrollment_id, final_grade FROM grades WHERE component = '__FINAL__' AND enrollment_id IN (" + enrollIn + ")";
-                        try (Statement s = conn.createStatement(); ResultSet rs = s.executeQuery(qFinal)) {
-                            while (rs.next()) {
-                                long eid = rs.getLong("enrollment_id");
-                                String fg = rs.getString("final_grade");
-                                for (EnrollmentRow er : rows) {
-                                    if (er.enrollmentId == eid) {
-                                        if (fg != null && !fg.isBlank()) er.computedFinal = fg;
-                                        break;
-                                    }
-                                }
-                            }
-                        } catch (SQLException ignore) {
-                            // If this query can't run on some schema, ignore
-                        }
-                    }
+    // 1) Query grades table (canonical) using component text names
+    String qGrades = "SELECT enrollment_id, component, score FROM grades "
+            + "WHERE enrollment_id IN (" + enrollIn + ") AND component IN (" + compNamesCsv + ")";
+    try (Statement s = conn.createStatement(); ResultSet rs = s.executeQuery(qGrades)) {
+        while (rs.next()) {
+            long eid = rs.getLong("enrollment_id");
+            String compName = rs.getString("component");
+            Double sc = rs.getObject("score") == null ? null : rs.getDouble("score");
+            Long cid = nameToCompId.get(compName);
+            if (cid == null) continue; // component name not present in current UI components
+            for (EnrollmentRow er : rows) {
+                if (er.enrollmentId == eid) {
+                    er.setScore(cid, sc);
+                    break;
+                }
+            }
+        }
+    } catch (SQLException ex) {
+        // If grades table/schema isn't present or this query fails for some reason, continue to fallback
+        ex.printStackTrace();
+    }
+
+    // 2) Fallback to legacy grade_components for any missing values
+    // This will only set scores that were not already filled from grades
+    String qGc = "SELECT gc.enrollment_id, gc.component_id, gc.score "
+            + "FROM grade_components gc "
+            + "WHERE gc.enrollment_id IN (" + enrollIn + ") AND gc.component_id IN (" + compInNumeric + ")";
+    try (Statement s2 = conn.createStatement(); ResultSet rs2 = s2.executeQuery(qGc)) {
+        while (rs2.next()) {
+            long eid = rs2.getLong("enrollment_id");
+            long cid = rs2.getLong("component_id");
+            Double sc = rs2.getObject("score") == null ? null : rs2.getDouble("score");
+            for (EnrollmentRow er : rows) {
+                if (er.enrollmentId == eid) {
+                    // only set if not already present from grades (grades take precedence)
+                    if (!er.scores.containsKey(cid)) er.setScore(cid, sc);
+                    break;
+                }
+            }
+        }
+    } catch (SQLException ex) {
+        ex.printStackTrace();
+    }
+}
+
+// Optional: load any existing 'final' rows from grades (component='__FINAL__') to show computedFinal
+if (!rows.isEmpty()) {
+    String enrollIn = rows.stream().map(r -> String.valueOf(r.enrollmentId)).collect(Collectors.joining(","));
+    String qFinal = "SELECT enrollment_id, final_grade FROM grades WHERE component = '__FINAL__' AND enrollment_id IN (" + enrollIn + ")";
+    try (Statement s = conn.createStatement(); ResultSet rs = s.executeQuery(qFinal)) {
+        while (rs.next()) {
+            long eid = rs.getLong("enrollment_id");
+            String fg = rs.getString("final_grade");
+            for (EnrollmentRow er : rows) {
+                if (er.enrollmentId == eid) {
+                    if (fg != null && !fg.isBlank()) er.computedFinal = fg;
+                    break;
+                }
+            }
+        }
+    } catch (SQLException ignore) {
+        // If this query can't run on some schema, ignore
+    }
+}
+
 
                 }
                 return null;
@@ -477,7 +541,6 @@ Double maxScore = null;
 try {
     if (SwingUtilities.getWindowAncestor(InstructorGradebookPanel.this) instanceof MainFrame frame) {
         if (frame.getInstructorPanel() != null) {
-            frame.getInstructorPanel().refreshDashboardStats();
         }
     }
 } catch (Exception ignore) {}
@@ -606,33 +669,58 @@ final Double fMaxScore = maxScore;
     }
 
     // ---- Stats ----
-    private void updateStats() {
-        List<Double> finals = enrollmentRows.stream()
-                .map(r -> {
-                    double v = parseComputedFinal(r.computedFinal);
-                    return Double.isNaN(v) ? null : v;
-                })
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+  private void updateStats() {
+    List<Double> finals = enrollmentRows.stream()
+            .map(r -> {
+                double v = parseComputedFinal(r.computedFinal);
+                return Double.isNaN(v) ? null : v;
+            })
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
 
-        if (finals.isEmpty()) {
-            statsLabel.setText("<html>Stats: <b>No final scores</b></html>");
-            return;
-        }
-        Collections.sort(finals);
-        int n = finals.size();
-        double sum = finals.stream().mapToDouble(Double::doubleValue).sum();
-        double mean = sum / n;
-        double median = (n % 2 == 1) ? finals.get(n / 2) : (finals.get(n / 2 - 1) + finals.get(n / 2)) / 2.0;
-        double min = finals.get(0);
-        double max = finals.get(n - 1);
-        double variance = finals.stream().mapToDouble(x -> (x - mean) * (x - mean)).sum() / n;
-        double std = Math.sqrt(variance);
-
-        String s = String.format("<html>Stats: count=%d, mean=%s, median=%s, std=%s, min=%s, max=%s</html>",
-                n, DF.format(mean), DF.format(median), DF.format(std), DF.format(min), DF.format(max));
-        statsLabel.setText(s);
+    if (finals.isEmpty()) {
+        statsLabel.setText("<html>Stats: <b>No final scores</b></html>");
+        // clear chart if present
+        if (statsChartPanel != null) statsChartPanel.clear();
+        return;
     }
+
+    Collections.sort(finals);
+    int n = finals.size();
+    double sum = finals.stream().mapToDouble(Double::doubleValue).sum();
+    double mean = sum / n;
+    double median = (n % 2 == 1) ? finals.get(n / 2) : (finals.get(n / 2 - 1) + finals.get(n / 2)) / 2.0;
+    double min = finals.get(0);
+    double max = finals.get(n - 1);
+    double variance = finals.stream().mapToDouble(x -> (x - mean) * (x - mean)).sum() / n;
+    double std = Math.sqrt(variance);
+
+    String s = String.format("<html>Stats: count=%d, mean=%s, median=%s, std=%s, min=%s, max=%s</html>",
+            n, DF.format(mean), DF.format(median), DF.format(std), DF.format(min), DF.format(max));
+    statsLabel.setText(s);
+
+    // prepare histogram buckets (0..100)
+    int buckets = 10;
+    double[] hist = new double[buckets];
+    double rangeMin = 0.0, rangeMax = 100.0;
+    double bucketSize = (rangeMax - rangeMin) / buckets;
+    for (double v : finals) {
+        int idx = (int) Math.floor((v - rangeMin) / bucketSize);
+        // clamp index safely
+        if (idx < 0) idx = 0;
+        if (idx >= buckets) idx = buckets - 1;
+        hist[idx] += 1.0;
+    }
+
+    // set data and repaint chart (guard for null if you didn't add statsChartPanel fields)
+    if (statsChartPanel != null) {
+        statsChartPanel.setHistogram(hist, rangeMin, rangeMax);
+        statsChartPanel.setSummary(n, mean, median, std, min, max);
+        // ensure repaint on EDT
+        if (SwingUtilities.isEventDispatchThread()) statsChartPanel.repaint();
+        else SwingUtilities.invokeLater(statsChartPanel::repaint);
+    }
+}
 
     // ---- CSV Export ----
     private void exportCsvAction() {
@@ -781,6 +869,107 @@ final Double fMaxScore = maxScore;
     // small helper types
     private static class SectionItem { final long sectionId; final String label; SectionItem(long id, String label) { this.sectionId = id; this.label = label; } @Override public String toString(){return label;} }
 
+    
+private class StatsChartPanel extends JPanel {
+    private double[] hist = null;
+    private double rangeMin = 0, rangeMax = 100;
+    private int count, median;
+    private double mean, med, std, min, max;
+
+    StatsChartPanel() {
+        setPreferredSize(new Dimension(300, 300));
+        setBackground(Color.WHITE);
+        setBorder(BorderFactory.createLineBorder(new Color(220,220,220)));
+    }
+
+    void setHistogram(double[] hist, double min, double max) {
+        this.hist = hist == null ? null : hist.clone();
+        this.rangeMin = min;
+        this.rangeMax = max;
+    }
+
+    void setSummary(int count, double mean, double median, double std, double min, double max) {
+        this.count = count;
+        this.mean = mean;
+        this.med = median;
+        this.std = std;
+        this.min = min;
+        this.max = max;
+    }
+
+    void clear() {
+        this.hist = null;
+        repaint();
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            int w = getWidth();
+            int h = getHeight();
+            int pad = 12;
+            int summaryH = 70;
+            int chartTop = pad + summaryH;
+            int chartH = h - chartTop - pad;
+            int chartW = w - 2 * pad;
+
+            // draw summary box
+            g2.setColor(new Color(245,245,245));
+            g2.fillRect(pad, pad, chartW, summaryH - 6);
+            g2.setColor(Color.DARK_GRAY);
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 12f));
+            int x = pad + 6;
+            int y = pad + 18;
+            g2.drawString("Count: " + count, x, y); y += 16;
+            g2.drawString("Mean: " + DF.format(mean) + "   Std: " + DF.format(std), x, y); y += 16;
+            g2.drawString("Min: " + DF.format(min) + "   Max: " + DF.format(max), x, y);
+
+            // draw histogram background
+            g2.setColor(new Color(250,250,250));
+            g2.fillRect(pad, chartTop, chartW, chartH);
+            g2.setColor(Color.LIGHT_GRAY);
+            g2.drawRect(pad, chartTop, chartW, chartH);
+
+            if (hist != null && hist.length > 0) {
+                double maxCount = 0;
+                for (double v : hist) if (v > maxCount) maxCount = v;
+                if (maxCount == 0) maxCount = 1;
+
+                int buckets = hist.length;
+                int barW = chartW / buckets;
+                for (int i = 0; i < buckets; i++) {
+                    double val = hist[i];
+                    int barH = (int) Math.round((val / maxCount) * (chartH - 8));
+                    int bx = pad + i * barW;
+                    int by = chartTop + chartH - barH;
+
+                    // bar fill
+                    g2.setColor(new Color(100, 160, 230));
+                    g2.fillRect(bx + 2, by, Math.max(1, barW - 4), barH);
+
+                    // bar border
+                    g2.setColor(new Color(60, 110, 180));
+                    g2.drawRect(bx + 2, by, Math.max(1, barW - 4), barH);
+
+                    // bucket label (percent range)
+                    g2.setColor(Color.DARK_GRAY);
+                    g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 10f));
+                    String lbl = DF.format(rangeMin + (i * (rangeMax - rangeMin) / buckets));
+                    g2.drawString(lbl, bx + 2, chartTop + chartH + 12);
+                }
+            } else {
+                g2.setColor(Color.GRAY);
+                g2.drawString("No data", pad + chartW/2 - 20, chartTop + chartH/2);
+            }
+        } finally {
+            g2.dispose();
+        }
+    }
+}
+
+
     private static class ComponentDef {
         final long componentId;
         final String name;
@@ -848,7 +1037,9 @@ final Double fMaxScore = maxScore;
             if (column == 1) return "Student Name";
             if (column >= 2 && column < 2 + comps.size()) {
                 ComponentDef c = comps.get(column - 2);
-                return c.name + " (" + DF.format(c.weight == null ? 0.0 : c.weight) + "%)";
+String hd = c.name + " (" + DF.format(c.weight == null ? 0.0 : c.weight) + "%)";
+if (c.maxScore != null) hd += ", max " + DF.format(c.maxScore);
+return hd;
             }
             return "Final";
         }
@@ -883,37 +1074,62 @@ final Double fMaxScore = maxScore;
             return r.computedFinal == null ? "" : r.computedFinal;
         }
 
+@Override
+public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+    if (DBConnection.isMaintenanceMode()) return;
+    if (!editable) return;
+    if (!(columnIndex >= 2 && columnIndex < 2 + comps.size())) return;
 
-        @Override
-        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
-            if (DBConnection.isMaintenanceMode()) return;
-            if (!editable) return;
-            if (!(columnIndex >= 2 && columnIndex < 2 + comps.size())) return;
-            EnrollmentRow r = rows.get(rowIndex);
-            ComponentDef c = comps.get(columnIndex - 2);
-            if (aValue == null) {
-                r.scores.remove(c.componentId);
-            } else {
-                try {
-                    double d = Double.parseDouble(String.valueOf(aValue));
-                    r.scores.put(c.componentId, d);
-                } catch (Exception ex) {
-                    // ignore invalid input
-                }
-            }
-            double total = 0.0, weightSum = 0.0;
-            for (ComponentDef cd : comps) {
-                Double sc = r.scores.get(cd.componentId);
-                double w = cd.weight == null ? 0.0 : cd.weight;
-                if (sc != null) total += (sc * w / 100.0);
-                weightSum += w;
-            }
-            double finalScore;
-            if (weightSum <= 0.0) finalScore = 0.0;
-            else finalScore = (total * 100.0) / weightSum;
-            r.computedFinal = DF.format(finalScore);
-            fireTableRowsUpdated(rowIndex, rowIndex);
-            updateStats();
+    EnrollmentRow r = rows.get(rowIndex);
+    ComponentDef c = comps.get(columnIndex - 2);
+
+    if (aValue == null || String.valueOf(aValue).trim().isEmpty()) {
+        r.scores.remove(c.componentId);
+    } else {
+        double d;
+        try {
+            d = Double.parseDouble(String.valueOf(aValue));
+        } catch (Exception ex) {
+            // invalid input -> ignore and show message
+            JOptionPane.showMessageDialog(InstructorGradebookPanel.this,
+                    "Invalid numeric value.", "Invalid input", JOptionPane.WARNING_MESSAGE);
+            return;
         }
+
+        // Validation: must be >= 0
+        if (d < 0.0) {
+            JOptionPane.showMessageDialog(InstructorGradebookPanel.this,
+                    "Score cannot be negative.", "Invalid score", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        // If component has a maxScore, enforce upper bound
+        if (c.maxScore != null && d > c.maxScore) {
+            JOptionPane.showMessageDialog(InstructorGradebookPanel.this,
+                    "Score cannot be greater than component max (" + c.maxScore + ").",
+                    "Invalid score", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // valid -> store
+        r.scores.put(c.componentId, d);
+    }
+
+    // recompute final for this row
+    double total = 0.0, weightSum = 0.0;
+    for (ComponentDef cd : comps) {
+        Double sc = r.scores.get(cd.componentId);
+        double w = cd.weight == null ? 0.0 : cd.weight;
+        if (sc != null) total += (sc * w / 100.0);
+        weightSum += w;
+    }
+    double finalScore;
+    if (weightSum <= 0.0) finalScore = 0.0;
+    else finalScore = (total * 100.0) / weightSum;
+    r.computedFinal = DF.format(finalScore);
+
+    fireTableRowsUpdated(rowIndex, rowIndex);
+    updateStats();
+}
+
     }
 }

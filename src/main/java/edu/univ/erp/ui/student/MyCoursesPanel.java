@@ -6,10 +6,10 @@ import edu.univ.erp.data.StudentDaoImpl;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
 import edu.univ.erp.util.DBConnection;
+import edu.univ.erp.service.RegistrationEventBus;
 
 import javax.swing.*;
 import javax.swing.table.*;
-
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -18,23 +18,19 @@ import java.sql.Date;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import edu.univ.erp.service.RegistrationEventBus;
-import edu.univ.erp.service.RegistrationEventBus.Listener;
-
-
 import java.util.Map;
 
 /**
  * MyCoursesPanel — lists current courses for the logged-in student and allows dropping before deadline.
  */
-public class MyCoursesPanel extends JPanel implements RegistrationListener {
+public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Listener {
 
     private String studentId;
     private DefaultTableModel model;
     private JTextField txtSearch;
     // UI state flag used by renderers/editors to enable/disable actions
-private boolean actionsEnabled = true;
-
+    private boolean actionsEnabled = true;
+    private boolean maintenanceMode = false;
 
     // Backing rows so we can access original values (section_id, raw drop_deadline, etc.)
     private java.util.List<Map<String, Object>> rowsList;
@@ -58,7 +54,6 @@ private boolean actionsEnabled = true;
         // Search panel
         JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
         searchPanel.setBackground(Theme.BACKGROUND);
-        //txtSearch = new JTextField(20);
         txtSearch = new JTextField(20);
         this.txtSearchReference = txtSearch;   // <-- store reference
 
@@ -79,11 +74,10 @@ private boolean actionsEnabled = true;
         model = new DefaultTableModel(cols, 0) {
             @Override public boolean isCellEditable(int r, int c) {
                 // Only Action column (last) is editable to host the button editor
-                return c == (getColumnCount() - 1);
+                return c == (getColumnCount() - 1) && !maintenanceMode && actionsEnabled;
             }
         };
 
-        //JTable table = new JTable(model);
         JTable table = new JTable(model);
         this.tableReference = table;   // <-- store reference
 
@@ -186,7 +180,7 @@ private boolean actionsEnabled = true;
         }.execute();
     }
 
-    /** RegistrationListener impl — called when user registers/drops a course elsewhere. */
+    /** RegistrationEventBus.Listener impl — called when user registers/drops a course elsewhere. */
     @Override
     public void onRegistrationChanged() {
         // refresh visible course list
@@ -195,52 +189,48 @@ private boolean actionsEnabled = true;
 
     // ---------- Button cell renderer/editor & helpers ----------
 
-    
-
-private boolean canDropRow(int viewRowIndex) {
-    if (rowsList == null || viewRowIndex < 0) return false;
-    // convert view index -> model index (handles sorting/filtering)
-    int modelRowIndex = viewRowIndex;
-    try {
-        if (tableReference != null) modelRowIndex = tableReference.convertRowIndexToModel(viewRowIndex);
-    } catch (Exception ignore) {}
-
-    if (modelRowIndex < 0 || modelRowIndex >= rowsList.size()) return false;
-    Map<String, Object> r = rowsList.get(modelRowIndex);
-    Object ddRaw = r.get("drop_deadline");
-    if (ddRaw == null) {
-        // keep current policy: allow when drop_deadline is NULL
-        return true;
-    }
-    LocalDate deadline;
-    if (ddRaw instanceof Date) {
-        deadline = ((Date) ddRaw).toLocalDate();
-    } else if (ddRaw instanceof LocalDate) {
-        deadline = (LocalDate) ddRaw;
-    } else {
-        // try parsing ISO format; if parse fails, allow by default (safe fallback)
+    private boolean canDropRow(int viewRowIndex) {
+        if (rowsList == null || viewRowIndex < 0) return false;
+        // convert view index -> model index (handles sorting/filtering)
+        int modelRowIndex = viewRowIndex;
         try {
-            deadline = LocalDate.parse(ddRaw.toString());
-        } catch (Exception ex) {
+            if (tableReference != null) modelRowIndex = tableReference.convertRowIndexToModel(viewRowIndex);
+        } catch (Exception ignore) {}
+
+        if (modelRowIndex < 0 || modelRowIndex >= rowsList.size()) return false;
+        Map<String, Object> r = rowsList.get(modelRowIndex);
+        Object ddRaw = r.get("drop_deadline");
+        if (ddRaw == null) {
+            // keep current policy: allow when drop_deadline is NULL
             return true;
         }
+        LocalDate deadline;
+        if (ddRaw instanceof Date) {
+            deadline = ((Date) ddRaw).toLocalDate();
+        } else if (ddRaw instanceof LocalDate) {
+            deadline = (LocalDate) ddRaw;
+        } else {
+            // try parsing ISO format; if parse fails, allow by default (safe fallback)
+            try {
+                deadline = LocalDate.parse(ddRaw.toString());
+            } catch (Exception ex) {
+                return true;
+            }
+        }
+        // Default: allow on or before deadline, disallow after.
+        return !LocalDate.now().isAfter(deadline);
     }
-    // Default: allow on or before deadline, disallow after.
-    return !LocalDate.now().isAfter(deadline);
-}
 
-
-private long getSectionIdAt(int viewRowIndex) {
-    int modelRowIndex = viewRowIndex;
-    try {
-        if (tableReference != null) modelRowIndex = tableReference.convertRowIndexToModel(viewRowIndex);
-    } catch (Exception ignore) {}
-    Map<String, Object> r = rowsList.get(modelRowIndex);
-    Object sid = r.get("section_id");
-    if (sid instanceof Number) return ((Number) sid).longValue();
-    return Long.parseLong(String.valueOf(sid));
-}
-
+    private long getSectionIdAt(int viewRowIndex) {
+        int modelRowIndex = viewRowIndex;
+        try {
+            if (tableReference != null) modelRowIndex = tableReference.convertRowIndexToModel(viewRowIndex);
+        } catch (Exception ignore) {}
+        Map<String, Object> r = rowsList.get(modelRowIndex);
+        Object sid = r.get("section_id");
+        if (sid instanceof Number) return ((Number) sid).longValue();
+        return Long.parseLong(String.valueOf(sid));
+    }
 
     // Renderer: show a JButton-looking cell (disabled when cannot drop)
     private class ButtonRenderer extends JButton implements TableCellRenderer {
@@ -249,7 +239,23 @@ private long getSectionIdAt(int viewRowIndex) {
         public Component getTableCellRendererComponent(JTable table, Object value,
                                                        boolean isSelected, boolean hasFocus, int row, int column) {
             setText(value == null ? "" : value.toString());
-            setEnabled(canDropRow(row));
+
+            if (maintenanceMode || !actionsEnabled) {
+                setEnabled(false);
+                setBackground(new Color(220, 220, 220));  // light grey
+                setForeground(Color.DARK_GRAY);
+            } else {
+                boolean ok = canDropRow(row);
+                setEnabled(ok);
+                if (!ok) {
+                    setBackground(new Color(220, 220, 220));
+                    setForeground(Color.DARK_GRAY);
+                } else {
+                    setBackground(Theme.PRIMARY);   // normal action color
+                    setForeground(Color.WHITE);
+                }
+            }
+
             return this;
         }
     }
@@ -276,13 +282,23 @@ private long getSectionIdAt(int viewRowIndex) {
                                                      boolean isSelected, int row, int column) {
             currentRow = row;
             button.setText(value == null ? "" : value.toString());
-            button.setEnabled(canDropRow(row));
+
+            if (maintenanceMode || !actionsEnabled) {
+                button.setEnabled(false);
+            } else {
+                button.setEnabled(canDropRow(row));
+            }
+
             isPushed = true;
             return button;
         }
 
         @Override
         public Object getCellEditorValue() {
+            if (maintenanceMode || !actionsEnabled) {
+                return "Drop";  // ignore click completely
+            }
+
             if (isPushed) {
                 // perform drop in background
                 long sectionId = getSectionIdAt(currentRow);
@@ -315,9 +331,9 @@ private long getSectionIdAt(int viewRowIndex) {
                         try {
                             boolean ok = get();
                             if (ok) {
-    JOptionPane.showMessageDialog(MyCoursesPanel.this, "Dropped successfully.");
-    reloadFromDb(null); // refresh this panel
-    RegistrationEventBus.get().notifyChange(); // 
+                                JOptionPane.showMessageDialog(MyCoursesPanel.this, "Dropped successfully.");
+                                reloadFromDb(null); // refresh this panel
+                                RegistrationEventBus.get().notifyChange();
                             } else {
                                 JOptionPane.showMessageDialog(MyCoursesPanel.this,
                                         "Could not drop: deadline passed or not enrolled.",
@@ -347,89 +363,99 @@ private long getSectionIdAt(int viewRowIndex) {
     }
 
     /**
- * Called by StudentPanel when maintenance mode toggles.
- * Disables all interactive actions without breaking existing functionality.
- */
-// =====================
-// Maintenance Mode Support
-
-
-// =====================
-
-public void setActionsEnabled(boolean enabled) {
-    this.actionsEnabled = enabled;
-    tablePanelSetEnabled(enabled);
-    repaint();
-}
-
-
-/**
- * Disables table + cell editors safely
- */
-/**
- * Disables/enables the Drop buttons + table editors safely during maintenance mode.
- */
-/**
- * Disables/enables the Drop buttons + table editors safely during maintenance mode.
- * Uses the class-level JTable field `tableReference`. If your field is named `table`, rename here.
- */
-private void tablePanelSetEnabled(boolean enabled) {
-    try {
-        // Use the actual table field name from your class
-        javax.swing.JTable t = this.tableReference; // change to `this.table` if that's your field
-
-        if (t == null) return;
-
-        // enable/disable table itself
-        t.setEnabled(enabled);
-
-        // stop any active cell editor
-        TableCellEditor active = t.getCellEditor();
-        if (active != null) {
-            try { active.stopCellEditing(); } catch (Exception ignore) {}
-        }
-
-        // iterate columns and disable editor components that are DefaultCellEditor
-        for (int col = 0; col < t.getColumnCount(); col++) {
-            TableCellEditor ed = t.getColumnModel().getColumn(col).getCellEditor();
-            if (ed instanceof javax.swing.DefaultCellEditor) {
-                Component comp = ((javax.swing.DefaultCellEditor) ed).getComponent();
-                if (comp != null) comp.setEnabled(enabled);
-            }
-        }
-
-        // also disable search textbox if present (use your field name)
-        try {
-            if (this.txtSearchReference != null) this.txtSearchReference.setEnabled(enabled);
-        } catch (Exception ignore) {}
-
-    } catch (Throwable ex) {
-        ex.printStackTrace();
+     * Disables/enables the Drop buttons + table editors safely during maintenance mode.
+     * Uses the class-level JTable field `tableReference`.
+     */
+    public void setActionsEnabled(boolean enabled) {
+        this.actionsEnabled = enabled;
+        tablePanelSetEnabled(enabled && !maintenanceMode);
+        repaint();
     }
-}
 
+    /**
+     * Disables table + cell editors safely
+     */
+    private void tablePanelSetEnabled(boolean enabled) {
+        try {
+            javax.swing.JTable t = this.tableReference;
+            if (t == null) return;
 
-/**
- * Finds the JTable inside the scroll pane
- */
-private JTable findTable() {
-    try {
-        for (Component c : this.getComponents()) {
-            if (c instanceof JPanel) {
-                for (Component inner : ((JPanel)c).getComponents()) {
-                    if (inner instanceof JScrollPane) {
-                        JScrollPane sp = (JScrollPane) inner;
-                        JViewport vp = sp.getViewport();
-                        Component view = vp.getView();
-                        if (view instanceof JTable) return (JTable) view;
+            // enable/disable table itself
+            t.setEnabled(enabled);
+
+            // stop any active cell editor
+            TableCellEditor active = t.getCellEditor();
+            if (active != null) {
+                try { active.stopCellEditing(); } catch (Exception ignore) {}
+            }
+
+            // iterate columns and disable editor components that are DefaultCellEditor
+            for (int col = 0; col < t.getColumnCount(); col++) {
+                TableCellEditor ed = t.getColumnModel().getColumn(col).getCellEditor();
+                if (ed instanceof javax.swing.DefaultCellEditor) {
+                    Component comp = ((javax.swing.DefaultCellEditor) ed).getComponent();
+                    if (comp != null) comp.setEnabled(enabled);
+                }
+            }
+
+            // also disable search textbox if present
+            try {
+                if (this.txtSearchReference != null) this.txtSearchReference.setEnabled(enabled);
+            } catch (Exception ignore) {}
+
+        } catch (Throwable ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    /**
+     * Finds the JTable inside the scroll pane
+     */
+    private JTable findTable() {
+        try {
+            for (Component c : this.getComponents()) {
+                if (c instanceof JPanel) {
+                    for (Component inner : ((JPanel)c).getComponents()) {
+                        if (inner instanceof JScrollPane) {
+                            JScrollPane sp = (JScrollPane) inner;
+                            JViewport vp = sp.getViewport();
+                            Component view = vp.getView();
+                            if (view instanceof JTable) return (JTable) view;
+                        }
                     }
                 }
             }
-        }
-    } catch (Exception ignore) {}
+        } catch (Exception ignore) {}
 
-    return null;
-}
+        return null;
+    }
 
+    /**
+     * Called by StudentPanel when maintenance mode toggles.
+     * Disables all interactive actions without breaking existing functionality.
+     */
+    public void setMaintenanceMode(boolean on) {
+        this.maintenanceMode = on;
+        setActionsEnabled(!on);   // disable table & search when maintenance ON
+        // force table redraw so renderers update appearance
+        if (tableReference != null) tableReference.repaint();
+        repaint();
+    }
 
+    // register/unregister with the event bus only while the component is showing
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        try {
+            RegistrationEventBus.get().register(this);
+        } catch (Exception ignore) {}
+    }
+
+    @Override
+    public void removeNotify() {
+        try {
+            RegistrationEventBus.get().unregister(this);
+        } catch (Exception ignore) {}
+        super.removeNotify();
+    }
 }

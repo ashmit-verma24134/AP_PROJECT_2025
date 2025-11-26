@@ -2,6 +2,7 @@ package edu.univ.erp.ui;
 
 import edu.univ.erp.data.SettingsDao;
 import edu.univ.erp.data.SettingsDaoImpl;
+import edu.univ.erp.service.RegistrationEventBus;
 import edu.univ.erp.ui.student.*;
 import edu.univ.erp.util.DBConnection;
 
@@ -13,13 +14,18 @@ import java.sql.ResultSet;
 
 /**
  * StudentPanel — Central authenticated student UI.
- * Sidebar navigation + CardLayout content area.
+ *
+ * Fixed:
+ * - use RegistrationEventBus.register(...) (not addListener)
+ * - immediate maintenance check on startup
+ * - ensure banner show/hide forces layout update
+ * - call myCoursesPanel.setActionsEnabled(...) so Drop buttons grey out during maintenance
  */
 public class StudentPanel extends JPanel {
 
     private final MainFrame mainFrame;
 
-    // New banner component
+    // New banner component (you provided)
     private final MaintenanceBanner maintenanceBanner = new MaintenanceBanner();
 
     private final JPanel navPanel = new JPanel(null);
@@ -122,20 +128,36 @@ public class StudentPanel extends JPanel {
 
         add(cards, BorderLayout.CENTER);
 
+        // Register MyCoursesPanel to the event bus (use 'register' method from your DAO)
+        try {
+// register using a lambda that delegates to myCoursesPanel
+RegistrationEventBus.get().register(() -> myCoursesPanel.onRegistrationChanged());
+            System.out.println("StudentPanel: registered myCoursesPanel to RegistrationEventBus");
+        } catch (Throwable t) {
+            // keep going even if event-bus registration fails
+            t.printStackTrace();
+        }
+
         // ------------ NAV ACTIONS ------------
         btnDashboard.addActionListener(e -> { setNavActive(btnDashboard); showCard("dashboard"); });
         btnCatalog.addActionListener(e -> { setNavActive(btnCatalog); showCard("catalog"); });
         btnTimetable.addActionListener(e -> { setNavActive(btnTimetable); showCard("timetable"); });
         btnTranscript.addActionListener(e -> { setNavActive(btnTranscript); showCard("transcript"); });
-        btnMyCourses.addActionListener(e -> { setNavActive(btnMyCourses); showCard("mycourses"); });
+        btnMyCourses.addActionListener(e -> {
+            setNavActive(btnMyCourses);
+            // ensure freshest data when opening
+            System.out.println("StudentPanel: My Courses button clicked -> reloading myCoursesPanel");
+            try { myCoursesPanel.reloadFromDb(null); } catch (Throwable ignore) {}
+            showCard("mycourses");
+        });
         btnGrades.addActionListener(e -> { setNavActive(btnGrades); showCard("grades"); });
 
-        // ---------- REGISTRATION LISTENER ----------
+        // ---------- REGISTRATION LISTENER FOR CATALOG ----------
         catalogPanel.setRegistrationListener(() -> {
-            myCoursesPanel.onRegistrationChanged();
-            timetablePanel.reloadForStudent();
-            transcriptPanel.reloadForStudent();
-            dashboardPanel.onRegistrationChanged();
+            try { myCoursesPanel.onRegistrationChanged(); } catch (Throwable ignore) {}
+            try { timetablePanel.reloadForStudent(); } catch (Throwable ignore) {}
+            try { transcriptPanel.reloadForStudent(); } catch (Throwable ignore) {}
+            try { dashboardPanel.onRegistrationChanged(); } catch (Throwable ignore) {}
         });
 
         SwingUtilities.invokeLater(() -> {
@@ -144,7 +166,9 @@ public class StudentPanel extends JPanel {
         });
 
         // ------------ MAINTENANCE POLLING ------------
+        // initial delay 0 so we check DB immediately at startup
         pollTimer = new javax.swing.Timer(10_000, e -> refreshMaintenance());
+        pollTimer.setInitialDelay(0);
         pollTimer.start();
     }
 
@@ -175,6 +199,12 @@ public class StudentPanel extends JPanel {
     private void showCard(String name) {
         CardLayout cl = (CardLayout) cards.getLayout();
         cl.show(cards, name);
+
+        // extra safety: reload my courses when visible
+        if ("mycourses".equals(name)) {
+            System.out.println("StudentPanel: showCard -> reloading myCoursesPanel (safety)");
+            try { myCoursesPanel.reloadFromDb(null); } catch (Throwable ignore) {}
+        }
     }
 
     private JComponent wrapInPadding(JComponent c) {
@@ -197,10 +227,8 @@ public class StudentPanel extends JPanel {
         try {
             numericId = Long.parseLong(studentId);
         } catch (NumberFormatException nfe) {
-            // fallback: show the raw id as username and skip DB query
             final String txt = "Welcome, " + (studentId == null ? "Student" : studentId);
             SwingUtilities.invokeLater(() -> welcomeLabel.setText(txt));
-            // still let panels know the id (as string) and attempt data loads if they accept string ids
             dashboardPanel.setStudentId(studentId);
             catalogPanel.setStudentId(studentId);
             timetablePanel.setStudentId(studentId);
@@ -214,7 +242,6 @@ public class StudentPanel extends JPanel {
         }
 
         try (Connection conn = DBConnection.getErpConnection()) {
-            // FIXED JOIN: auth_db.users uses user_id column (not id)
             String q = "SELECT s.full_name, s.roll_no, u.username "
                     + "FROM students s LEFT JOIN auth_db.users u ON s.user_id = u.user_id "
                     + "WHERE s.student_id = ? LIMIT 1";
@@ -253,6 +280,9 @@ public class StudentPanel extends JPanel {
         catalogPanel.reloadFromDb(null);
         timetablePanel.reloadForStudent();
         transcriptPanel.reloadForStudent();
+
+        // safety: ensure my courses starts with fresh data
+        try { myCoursesPanel.reloadFromDb(null); } catch (Throwable ignore) {}
     }
 
     // ================= MAINTENANCE =================
@@ -264,6 +294,7 @@ public class StudentPanel extends JPanel {
                     SettingsDao s = new SettingsDaoImpl(conn);
                     return s.isMaintenanceOn();
                 } catch (Exception ex) {
+                    ex.printStackTrace();
                     return false;
                 }
             }
@@ -272,18 +303,49 @@ public class StudentPanel extends JPanel {
             protected void done() {
                 try {
                     boolean maintenance = get();
+                    System.out.println("[DEBUG] refreshMaintenance() -> maintenance=" + maintenance);
 
-                    maintenanceBanner.setVisible(maintenance);
+                    // UI changes on EDT
+                    SwingUtilities.invokeLater(() -> {
+                        try {
+                            // show/hide banner
+                            maintenanceBanner.setVisible(maintenance);
 
-                    catalogPanel.setActionsEnabled(!maintenance);
-                    timetablePanel.setActionsEnabled(!maintenance);
-                    transcriptPanel.setActionsEnabled(!maintenance);
-                    dashboardPanel.setActionsEnabled(!maintenance);
+                            // re-layout header/banner
+                            Container top = maintenanceBanner.getParent();
+                            if (top instanceof JComponent) {
+                                ((JComponent) top).revalidate();
+                                ((JComponent) top).repaint();
+                            } else {
+                                StudentPanel.this.revalidate();
+                                StudentPanel.this.repaint();
+                            }
 
-                    gradesPanel.setEnabled(!maintenance);
-                    myCoursesPanel.setActionsEnabled(!maintenance);
+                            // update other panels' actions (disable action buttons during maintenance)
+                            try { catalogPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
+                            try { timetablePanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
+                            try { transcriptPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
+                            try { dashboardPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
+                            try { gradesPanel.setEnabled(!maintenance); } catch (Throwable ignore) {}
 
-                } catch (Exception ignore) {}
+                            // THIS ensures drop/register buttons in MyCoursesPanel become greyed out
+                            try { myCoursesPanel.setActionsEnabled(!maintenance); } catch (Throwable t) {
+                                // If MyCoursesPanel doesn't have setActionsEnabled, print a hint
+                                System.err.println("myCoursesPanel.setActionsEnabled(...) failed: " + t.getMessage());
+                            }
+
+                            // repaint cards
+                            cards.revalidate();
+                            cards.repaint();
+
+                        } catch (Throwable t) {
+                            t.printStackTrace();
+                        }
+                    });
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
             }
         }.execute();
     }

@@ -65,10 +65,7 @@ public Result registerForSection(String studentId, long sectionId) {
                 return Result.error("This section is already full.");
             }
 
-            if (sectionDao.isDropDeadlineOver(sectionId)) {
-                conn.rollback();
-                return Result.error("Registration deadline has passed.");
-            }
+
 
             // NEW: createEnrollment now returns the generated enrollment_id (long)
             long enrollmentId = -1L;

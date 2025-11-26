@@ -127,11 +127,49 @@ public class CatalogPanel extends JPanel {
     /** Called by StudentPanel after login */
     public void setStudentId(String studentId) { this.studentId = studentId; }
 
-    public void setActionsEnabled(boolean enabled) {
-        this.actionsEnabled = enabled;
+public void setActionsEnabled(boolean enabled) {
+    this.actionsEnabled = enabled;
+    tablePanelSetEnabled(enabled);   // <- uses the helper
+    try { txtSearch.setEnabled(enabled); } catch (Exception ignore) {}
+    repaint();
+}
+
+/**
+ * Helper to safely enable/disable table editing and cell editors.
+ * Called by StudentPanel when maintenance toggles.
+ */
+private void tablePanelSetEnabled(boolean enabled) {
+    try {
+        if (table == null) return;
+
+        // enable/disable table itself
         table.setEnabled(enabled);
-        repaint();
+
+        // disable any active cell editors and the default editors for columns
+        TableCellEditor active = table.getCellEditor();
+        if (active != null) {
+            try { active.stopCellEditing(); } catch (Exception ignore) {}
+        }
+
+        // iterate columns and disable editor components that are DefaultCellEditor
+        for (int col = 0; col < table.getColumnCount(); col++) {
+            TableCellEditor ed = table.getColumnModel().getColumn(col).getCellEditor();
+            if (ed instanceof javax.swing.DefaultCellEditor) {
+                Component comp = ((javax.swing.DefaultCellEditor) ed).getComponent();
+                if (comp != null) comp.setEnabled(enabled);
+            }
+        }
+
+        // also disable the search box and any footer buttons if present
+        try { txtSearch.setEnabled(enabled); } catch (Exception ignore) {}
+
+    } catch (Throwable t) {
+        // swallow to prevent maintenance toggling from crashing UI
+        t.printStackTrace();
     }
+}
+
+
 
     public boolean isActionsEnabled() { return actionsEnabled; }
 

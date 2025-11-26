@@ -26,7 +26,6 @@ public class TranscriptPdfExporter {
                                      String studentId,
                                      //String program,
                                      String department,
-                                     String batch,
                                      File logoFile,
                                      String issueDate,
                                      String cgpaString) throws Exception {
@@ -64,8 +63,6 @@ public class TranscriptPdfExporter {
         left.addCell(createValueCell(studentId));
         //left.addCell(createLabelCell("Program:"));
         //left.addCell(createValueCell(program));
-        left.addCell(createLabelCell("Batch:"));
-        left.addCell(createValueCell(batch));
 
         // CGPA row (only shown if provided)
         left.addCell(createLabelCell("CGPA:"));

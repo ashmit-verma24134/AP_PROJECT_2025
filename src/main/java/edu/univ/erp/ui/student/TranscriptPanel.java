@@ -118,118 +118,181 @@ public class TranscriptPanel extends JPanel {
     }
 
     public int getLoadedRowCount() { return model.getRowCount(); }
+public void reloadForStudent() {
+    System.out.println("[DEBUG TranscriptPanel.beforeStart] studentId=" + studentId + " studentName(before)=" + studentName);
+    if (studentId == null) return;
 
-    public void reloadForStudent() {
-        System.out.println("[DEBUG TranscriptPanel.beforeStart] studentId=" + studentId + " studentName(before)=" + studentName);
-        if (studentId == null) return;
-
-        new SwingWorker<List<TranscriptModel.Row>, Void>() {
-            @Override
-            protected List<TranscriptModel.Row> doInBackground() throws Exception {
-                List<TranscriptModel.Row> out = new ArrayList<>();
-                try (Connection conn = DBConnection.getErpConnection()) {
-                    // metadata
-                    try (PreparedStatement psInfo = conn.prepareStatement(
-                            "SELECT full_name, department, year AS batch FROM students WHERE student_id = ?")) {
-                        try { psInfo.setLong(1, Long.parseLong(studentId)); }
-                        catch (NumberFormatException ex) { psInfo.setString(1, studentId); }
-                        try (ResultSet rsInfo = psInfo.executeQuery()) {
-                            if (rsInfo.next()) {
-                                String dbName = rsInfo.getString("full_name");
-                                if (dbName != null && !dbName.isBlank()) studentName = dbName;
-                                //program = rsInfo.getString("program");
-                                department = rsInfo.getString("department");
-                                Object b = rsInfo.getObject("batch");
-                                batch = b == null ? null : String.valueOf(b);
-                            }
+    new SwingWorker<List<TranscriptModel.Row>, Void>() {
+        @Override
+        protected List<TranscriptModel.Row> doInBackground() throws Exception {
+            List<TranscriptModel.Row> out = new ArrayList<>();
+            try (Connection conn = DBConnection.getErpConnection()) {
+                // metadata
+                try (PreparedStatement psInfo = conn.prepareStatement(
+                        "SELECT full_name, department, year AS batch FROM students WHERE student_id = ?")) {
+                    try { psInfo.setLong(1, Long.parseLong(studentId)); }
+                    catch (NumberFormatException ex) { psInfo.setString(1, studentId); }
+                    try (ResultSet rsInfo = psInfo.executeQuery()) {
+                        if (rsInfo.next()) {
+                            String dbName = rsInfo.getString("full_name");
+                            if (dbName != null && !dbName.isBlank()) studentName = dbName;
+                            department = rsInfo.getString("department");
+                            Object b = rsInfo.getObject("batch");
+                            batch = b == null ? null : String.valueOf(b);
                         }
-                    } catch (Exception ex) {
-                        System.err.println("[DEBUG TranscriptPanel] metadata fetch failed: " + ex.getMessage());
                     }
+                } catch (Exception ex) {
+                    System.err.println("[DEBUG TranscriptPanel] metadata fetch failed: " + ex.getMessage());
+                }
 
-                    // transcript rows (note: we only extract fields we need)
+                // ---------- build dynamic semester ordering from DB ----------
+                java.util.Map<String, Integer> semOrder = new java.util.HashMap<>();
+                try (PreparedStatement psSem = conn.prepareStatement(
+                        "SELECT semester, MIN(year) AS first_year FROM sections GROUP BY semester ORDER BY first_year ASC")) {
+                    try (ResultSet rsSem = psSem.executeQuery()) {
+                        int idx = 0;
+                        while (rsSem.next()) {
+                            String sem = rsSem.getString("semester");
+                            if (sem == null) sem = "";
+                            semOrder.put(sem, idx++);
+                        }
+                    }
+                } catch (Exception ex) {
+                    System.err.println("[TranscriptPanel] could not build semOrder: " + ex.getMessage());
+                }
+
+                // ---------- fetch transcript rows (no hardcoded CASE in SQL) ----------
 String sql = """
     SELECT c.code, c.title, COALESCE(c.credits,0) AS credits,
-           s.semester, s.year, g.final_grade
+           s.semester, s.year,
+           g2.final_grade
     FROM enrollments e
     JOIN sections s ON s.section_id = e.section_id
     JOIN courses c ON c.course_id = s.course_id
-    LEFT JOIN grades g ON g.enrollment_id = e.enrollment_id
+    LEFT JOIN (
+        SELECT gr.enrollment_id,
+               gr.final_grade,
+               gr.created_at
+        FROM grades gr
+        JOIN (
+            SELECT enrollment_id, MAX(created_at) AS max_created
+            FROM grades
+            GROUP BY enrollment_id
+        ) grp ON grp.enrollment_id = gr.enrollment_id AND grp.max_created = gr.created_at
+    ) g2 ON g2.enrollment_id = e.enrollment_id
     WHERE e.student_id = ?
       AND e.status IN ('ENROLLED','COMPLETED')
-    ORDER BY s.year DESC, 
-             CASE s.semester
-                WHEN 'Monsoon' THEN 1
-                WHEN 'Fall' THEN 1
-                WHEN 'Winter' THEN 2
-                WHEN 'Spring' THEN 2
-                WHEN 'Summer' THEN 3
-                ELSE 4
-             END ASC,
-             c.code ASC
+    ORDER BY s.year DESC, c.code ASC
 """;
 
-                    try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                        try { ps.setLong(1, Long.parseLong(studentId)); }
-                        catch (NumberFormatException ex) { ps.setString(1, studentId); }
-                        try (ResultSet rs = ps.executeQuery()) {
-                            while (rs.next()) {
-                                out.add(new TranscriptModel.Row(
-                                        rs.getString("code"),
-                                        rs.getString("title"),
-                                        rs.getInt("credits"),
-                                        rs.getString("semester"),
-                                        rs.getInt("year"),
-                                        rs.getString("final_grade")
-                                ));
+
+
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    try { ps.setLong(1, Long.parseLong(studentId)); }
+                    catch (NumberFormatException ex) { ps.setString(1, studentId); }
+
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            out.add(new TranscriptModel.Row(
+                                    rs.getString("code"),
+                                    rs.getString("title"),
+                                    rs.getInt("credits"),
+                                    rs.getString("semester"),
+                                    rs.getInt("year"),
+                                    rs.getString("final_grade")
+                            ));
+                        }
+                    }
+                }
+
+                // ---------- DEDUPE: keep only ONE row per course code (prefer newest) ----------
+                if (out.size() > 1) {
+                    java.util.Map<String, TranscriptModel.Row> best = new java.util.LinkedHashMap<>();
+                    for (TranscriptModel.Row r : out) {
+                        String key = r.code == null ? r.title : r.code;
+                        TranscriptModel.Row existing = best.get(key);
+
+                        if (existing == null) {
+                            best.put(key, r);
+                            continue;
+                        }
+
+                        // compare YEAR first (larger = newer)
+                        if (r.year > existing.year) {
+                            best.put(key, r);
+                            continue;
+                        } else if (r.year < existing.year) {
+                            continue;
+                        }
+
+                        // same year -> compare semester using semOrder if available
+                        Integer o1 = semOrder.get(r.semester);
+                        Integer o2 = semOrder.get(existing.semester);
+
+                        if (o1 != null && o2 != null) {
+                            if (o1 > o2) { // larger index considered newer (built from earliest occurrence)
+                                best.put(key, r);
                             }
+                            continue;
+                        }
+
+                        // fallback lexicographic compare (treat lexicographically larger as newer)
+                        if ((r.semester == null ? "" : r.semester).compareTo(existing.semester == null ? "" : existing.semester) > 0) {
+                            best.put(key, r);
+                            continue;
+                        }
+
+                        // tie-breaker: prefer the one with a final grade (non-null/non-blank)
+                        boolean existingHasGrade = existing.finalGrade != null && !existing.finalGrade.isBlank();
+                        boolean newHasGrade = r.finalGrade != null && !r.finalGrade.isBlank();
+                        if (!existingHasGrade && newHasGrade) {
+                            best.put(key, r);
                         }
                     }
-                }
-                return out;
-            }
-
-            @Override
-            protected void done() {
-                try {
-                    List<TranscriptModel.Row> rows = get();
-                    model.setRows(rows);
-
-                    if (studentName == null || studentName.isBlank()) studentName = "Student #" + studentId;
-                    //if (program == null || program.isBlank()) program = "Program";
-                    if (department == null || department.isBlank()) department = "IIIT-Delhi";
-                    if (batch == null || batch.isBlank()) batch = "Batch";
-
-                    // compute CGPA weighted by credits (ignore ungraded rows)
-                    double sumPointsTimesCredits = 0.0;
-                    double sumCreditsForGraded = 0.0;
-                    for (TranscriptModel.Row rr : rows) {
-                        Double pts = gradeToPoints(rr.finalGrade);
-                        if (pts != null) {
-                            sumPointsTimesCredits += pts * (double) rr.credits;
-                            sumCreditsForGraded += (double) rr.credits;
-                        }
-                    }
-                    String cgpaText = "-";
-                    if (sumCreditsForGraded > 0.0) {
-                        double cgpa = sumPointsTimesCredits / sumCreditsForGraded;
-                        cgpa = Math.round(cgpa * 100.0) / 100.0;
-                        cgpaText = String.valueOf(cgpa);
-                    }
-                    cgpaLabel.setText("CGPA: " + cgpaText);
-
-                    System.out.println("[DEBUG TranscriptPanel.afterDone] studentId=" + studentId
-                            //+ " studentName(final)=\"" + studentName + "\" program=" + program
-                            + " dept=" + department + " batch=" + batch + " rows=" + rows.size());
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                    JOptionPane.showMessageDialog(TranscriptPanel.this,
-                            "Failed to load transcript: " + ex.getMessage(),
-                            "Error", JOptionPane.ERROR_MESSAGE);
+                    out = new java.util.ArrayList<>(best.values());
                 }
             }
-        }.execute();
-    }
+            return out;
+        }
+
+        @Override
+        protected void done() {
+            try {
+                List<TranscriptModel.Row> rows = get();
+                model.setRows(rows);
+
+                if (studentName == null || studentName.isBlank()) studentName = "Student #" + studentId;
+                if (department == null || department.isBlank()) department = "IIIT-Delhi";
+                if (batch == null || batch.isBlank()) batch = "Batch";
+
+                // compute CGPA weighted by credits (ignore ungraded rows)
+                double sumPointsTimesCredits = 0.0;
+                double sumCreditsForGraded = 0.0;
+                for (TranscriptModel.Row rr : rows) {
+                    Double pts = gradeToPoints(rr.finalGrade);
+                    if (pts != null) {
+                        sumPointsTimesCredits += pts * (double) rr.credits;
+                        sumCreditsForGraded += (double) rr.credits;
+                    }
+                }
+                String cgpaText = "-";
+                if (sumCreditsForGraded > 0.0) {
+                    double cgpa = sumPointsTimesCredits / sumCreditsForGraded;
+                    cgpa = Math.round(cgpa * 100.0) / 100.0;
+                    cgpaText = String.valueOf(cgpa);
+                }
+                cgpaLabel.setText("CGPA: " + cgpaText);
+
+               
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                JOptionPane.showMessageDialog(TranscriptPanel.this,
+                        "Failed to load transcript: " + ex.getMessage(),
+                        "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }.execute();
+}
 
     // grade mapping helper (10-pt scale)
     private static Double gradeToPoints(String grade) {
@@ -367,7 +430,7 @@ String sql = """
             String cgpaStr = getCgpaText();
 
             TranscriptPdfExporter.exportPremium(
-                    list, out, nameToUse, studentId, dept, batchVal, logo, issueDate, cgpaStr
+                    list, out, nameToUse, studentId, dept, logo, issueDate, cgpaStr
             );
 
             JOptionPane.showMessageDialog(this, "PDF exported!\n" + out.getAbsolutePath());

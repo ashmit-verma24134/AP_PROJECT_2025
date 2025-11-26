@@ -37,6 +37,15 @@ public class RegistrationEventBus {
         return INSTANCE;
     }
 
+    public void addListener(Object o) {
+    if (o instanceof Listener) {
+        listeners.add((Listener) o);
+    } else {
+        System.err.println("Tried to add non-listener: " + o.getClass());
+    }
+}
+
+
     // register listener
     public void register(Listener l) {
         if (l != null) listeners.add(l);

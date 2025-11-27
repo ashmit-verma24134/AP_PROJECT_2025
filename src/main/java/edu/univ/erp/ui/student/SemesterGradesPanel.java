@@ -1,9 +1,11 @@
 package edu.univ.erp.ui.student;
 
+import edu.univ.erp.service.AssessmentService;
+import edu.univ.erp.service.AssessmentServiceImpl;
 import edu.univ.erp.service.GradeService;
-import edu.univ.erp.service.GradeServiceImpl;
 import edu.univ.erp.service.StudentGradeService;
 import edu.univ.erp.service.StudentGradeService.CourseRow;
+import edu.univ.erp.service.StudentService;
 import edu.univ.erp.ui.Theme;
 
 import javax.swing.*;
@@ -16,19 +18,22 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Semester-based student grades panel using GradeService.
+ * Semester-based student grades panel using StudentGradeService (injected).
  */
 public class SemesterGradesPanel extends JPanel {
 
-    private final StudentGradeService gradeService;   // <-- SERVICE
+    private final StudentGradeService gradeService;   // <-- SERVICE (injected)
     private String studentId;
 
     private final JPanel semestersContainer;
     private final JButton btnRefresh;
     private final JLabel statusLabel;
 
-    public SemesterGradesPanel() {
-        this.gradeService = new gradeService();  // <-- SERVICE INITIALIZED
+    /**
+     * Constructor: inject the StudentGradeService (do not create service inside UI).
+     */
+    public SemesterGradesPanel(StudentGradeService gradeService) {
+        this.gradeService = gradeService;
 
         setLayout(new BorderLayout(10,10));
         setBackground(Theme.BACKGROUND);
@@ -74,6 +79,8 @@ public class SemesterGradesPanel extends JPanel {
         add(footer, BorderLayout.SOUTH);
     }
 
+
+
     // ---------------------------
     // PUBLIC API
     // ---------------------------
@@ -100,7 +107,8 @@ public class SemesterGradesPanel extends JPanel {
 
             @Override
             protected Map<String, List<CourseRow>> doInBackground() throws Exception {
-                return gradeService.loadGradesForStudent(studentId);  // <-- SERVICE CALL
+                // call injected service
+                return gradeService.loadGradesForStudent(studentId);
             }
 
             @Override
@@ -108,7 +116,7 @@ public class SemesterGradesPanel extends JPanel {
                 try {
                     Map<String, List<CourseRow>> map = get();
 
-                    if (map.isEmpty()) {
+                    if (map == null || map.isEmpty()) {
                         JLabel empty = new JLabel("No courses found.", SwingConstants.CENTER);
                         empty.setFont(new Font("Segoe UI", Font.ITALIC, 14));
                         empty.setBorder(new EmptyBorder(18,18,18,18));
@@ -124,7 +132,7 @@ public class SemesterGradesPanel extends JPanel {
                     semestersContainer.revalidate();
                     semestersContainer.repaint();
 
-                    int total = map.values().stream().mapToInt(List::size).sum();
+                    int total = map == null ? 0 : map.values().stream().mapToInt(List::size).sum();
                     statusLabel.setText("Loaded " + total + " courses");
 
                 } catch (Exception ex) {
@@ -188,17 +196,23 @@ public class SemesterGradesPanel extends JPanel {
         JScrollPane sp = new JScrollPane(t);
         panel.add(sp, BorderLayout.CENTER);
 
-        int actionsCol = 6;
+        final int actionsCol = 6;
 
         t.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                int r = t.rowAtPoint(e.getPoint());
-                int c = t.columnAtPoint(e.getPoint());
-                if (r < 0) return;
+                int viewRow = t.rowAtPoint(e.getPoint());
+                int viewCol = t.columnAtPoint(e.getPoint());
+                if (viewRow < 0) return;
 
-                if (c == actionsCol || e.getClickCount() == 2) {
-                    openAssessmentsDialog(rows.get(r));  // <-- FIXED
+                // convert view row to model index in case of sorting
+                int modelRow = viewRow;
+                try { modelRow = t.convertRowIndexToModel(viewRow); } catch (Exception ignored) {}
+
+                if (viewCol == actionsCol || e.getClickCount() == 2) {
+                    if (modelRow >= 0 && modelRow < rows.size()) {
+                        openAssessmentsDialog(rows.get(modelRow));
+                    }
                 }
             }
         });
@@ -213,15 +227,19 @@ public class SemesterGradesPanel extends JPanel {
         Window w = SwingUtilities.getWindowAncestor(this);
 
         try {
+            // create an AssessmentService implementation and pass to dialog
+            AssessmentService assessmentService = new AssessmentServiceImpl();
             AssessmentsDialog dlg = new AssessmentsDialog(
                     w,
                     cr.enrollmentId,
                     cr.courseCode,
-                    cr.courseTitle
+                    cr.courseTitle,
+                    assessmentService
             );
             dlg.setVisible(true);
 
         } catch (Throwable t) {
+            t.printStackTrace();
             JOptionPane.showMessageDialog(
                     this,
                     "Failed to open assessment dialog: " + t.getMessage(),

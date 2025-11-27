@@ -2,6 +2,8 @@ package edu.univ.erp.ui.student;
 
 import edu.univ.erp.service.TimetableService;
 import edu.univ.erp.service.RegistrationEventBus;
+import edu.univ.erp.service.SectionService;
+import edu.univ.erp.service.StudentService;
 import edu.univ.erp.ui.Theme;
 
 import javax.swing.*;
@@ -42,7 +44,7 @@ public class TimetablePanel extends JPanel {
     // ----------------------------------------------------
     // CONSTRUCTOR
     // ----------------------------------------------------
-    public TimetablePanel() {
+    public TimetablePanel(SectionService sectionService, StudentService studentService) {
 
         // Build time slot labels
         List<String> labels = new ArrayList<>();

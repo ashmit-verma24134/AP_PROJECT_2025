@@ -14,8 +14,21 @@ import java.util.List;
  */
 public class UserDaoImpl implements UserDao {
 
-    private final Connection conn;
+      private final Connection conn;
 
+    // DEFAULT CONSTRUCTOR (no throws)
+    public UserDaoImpl() {
+        Connection c = null;
+        try {
+            c = DBConnection.getErpConnection();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            // Optional: log or handle error
+        }
+        this.conn = c;
+    }
+
+    // Constructor if someone wants to inject custom connection
     public UserDaoImpl(Connection conn) {
         this.conn = conn;
     }

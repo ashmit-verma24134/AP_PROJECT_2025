@@ -1,20 +1,19 @@
 package edu.univ.erp.ui.student;
 
-import edu.univ.erp.data.RegistrationDAO;
-import edu.univ.erp.data.StudentDao;
-import edu.univ.erp.data.StudentDaoImpl;
+import edu.univ.erp.service.CourseService;
+import edu.univ.erp.service.EnrollmentService;
+import edu.univ.erp.service.RegistrationEventBus;
+import edu.univ.erp.service.StudentService;
+import edu.univ.erp.service.Result;
+import edu.univ.erp.service.SectionService;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
-import edu.univ.erp.util.DBConnection;
-import edu.univ.erp.service.RegistrationEventBus;
 
 import javax.swing.*;
 import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.sql.Connection;
-import java.sql.Date;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -22,40 +21,52 @@ import java.util.Map;
 
 /**
  * MyCoursesPanel — lists current courses for the logged-in student and allows dropping before deadline.
+ * This version DOES NOT talk to the DB directly: it uses StudentService.
  */
 public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Listener {
 
     private String studentId;
     private DefaultTableModel model;
     private JTextField txtSearch;
-    // UI state flag used by renderers/editors to enable/disable actions
     private boolean actionsEnabled = true;
     private boolean maintenanceMode = false;
-
-    // Backing rows so we can access original values (section_id, raw drop_deadline, etc.)
     private java.util.List<Map<String, Object>> rowsList;
-
-    // Formatter for displayed deadline
     private final DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd MMM yyyy");
-    private JTable tableReference;  // reference to the JTable
-    private JTextField txtSearchReference; // reference to the search text field
+    private JTable tableReference;
+    private JTextField txtSearchReference;
 
-    public MyCoursesPanel() {
+    // Service injected from outside (MainFrame / StudentPanel)
+    private final StudentService studentService;
+
+    public MyCoursesPanel(StudentService studentService) {
+        this.studentService = studentService;
+        initUi();
+    }
+
+
+    public MyCoursesPanel(EnrollmentService enrollmentService, CourseService courseService,
+            SectionService sectionService) {
+                this.studentService = null;
+
+                
+        //TODO Auto-generated constructor stub
+    }
+
+
+    private void initUi() {
         setLayout(new BorderLayout(10, 10));
         setBackground(Theme.BACKGROUND);
 
-        // Header
         JLabel header = new JLabel("🎓 My Courses");
         header.setFont(new Font("Segoe UI", Font.BOLD, 22));
         header.setForeground(Theme.PRIMARY);
         header.setBorder(BorderFactory.createEmptyBorder(15, 15, 10, 15));
         add(header, BorderLayout.NORTH);
 
-        // Search panel
         JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
         searchPanel.setBackground(Theme.BACKGROUND);
         txtSearch = new JTextField(20);
-        this.txtSearchReference = txtSearch;   // <-- store reference
+        this.txtSearchReference = txtSearch;
 
         JButton btnSearch = new JButton("Search");
         JButton btnRefresh = new JButton("Refresh");
@@ -69,39 +80,34 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
         searchPanel.add(btnRefresh);
         add(searchPanel, BorderLayout.SOUTH);
 
-        // Table setup - added Drop Deadline and Action column
         String[] cols = {"Course Code", "Course Name", "Instructor", "Schedule", "Credits", "Status", "Drop Deadline", "Action"};
         model = new DefaultTableModel(cols, 0) {
             @Override public boolean isCellEditable(int r, int c) {
-                // Only Action column (last) is editable to host the button editor
                 return c == (getColumnCount() - 1) && !maintenanceMode && actionsEnabled;
             }
         };
 
         JTable table = new JTable(model);
-        this.tableReference = table;   // <-- store reference
+        this.tableReference = table;
 
         table.setRowHeight(36);
         table.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         table.setGridColor(new Color(230,230,230));
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
-        // Header styling
         table.getTableHeader().setBackground(Theme.PRIMARY);
         table.getTableHeader().setForeground(Color.WHITE);
 
-        // Set preferred widths
         TableColumnModel colModel = table.getColumnModel();
-        colModel.getColumn(0).setPreferredWidth(100); // code
-        colModel.getColumn(1).setPreferredWidth(300); // name
-        colModel.getColumn(2).setPreferredWidth(140); // instructor
-        colModel.getColumn(3).setPreferredWidth(140); // schedule
-        colModel.getColumn(4).setPreferredWidth(60);  // credits
-        colModel.getColumn(5).setPreferredWidth(80);  // status
-        colModel.getColumn(6).setPreferredWidth(120); // drop deadline
-        colModel.getColumn(7).setPreferredWidth(80);  // action
+        colModel.getColumn(0).setPreferredWidth(100);
+        colModel.getColumn(1).setPreferredWidth(300);
+        colModel.getColumn(2).setPreferredWidth(140);
+        colModel.getColumn(3).setPreferredWidth(140);
+        colModel.getColumn(4).setPreferredWidth(60);
+        colModel.getColumn(5).setPreferredWidth(80);
+        colModel.getColumn(6).setPreferredWidth(120);
+        colModel.getColumn(7).setPreferredWidth(80);
 
-        // Add button renderer/editor to last column
         int actionColumnIndex = cols.length - 1;
         table.getColumnModel().getColumn(actionColumnIndex).setCellRenderer(new ButtonRenderer());
         table.getColumnModel().getColumn(actionColumnIndex).setCellEditor(new ButtonEditor(new JCheckBox()));
@@ -114,15 +120,13 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
         add(tablePanel, BorderLayout.CENTER);
     }
 
-    /** Called by StudentPanel after login to set the active student and load courses. */
     public void setStudentId(String id) {
         this.studentId = id;
         reloadFromDb(null);
     }
 
     /**
-     * Public reload method — used by UI and by the registration listener.
-     * Query may be null to fetch all current courses.
+     * Now calls StudentService.getCurrentCourses(...) in background.
      */
     public void reloadFromDb(String query) {
         model.setRowCount(0);
@@ -131,10 +135,8 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
         new SwingWorker<List<Map<String,Object>>, Void>() {
             @Override
             protected List<Map<String,Object>> doInBackground() throws Exception {
-                try (Connection conn = DBConnection.getErpConnection()) {
-                    StudentDao dao = new StudentDaoImpl(conn);
-                    return dao.getCurrentCourses(studentId, query);
-                }
+                // UI no longer accesses DB or DAOs directly
+                return studentService.getCurrentCourses(studentId, query);
             }
 
             @Override
@@ -144,12 +146,11 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
                     if (rowsList == null) return;
                     model.setRowCount(0);
                     for (Map<String,Object> c : rowsList) {
-                        // extract drop_deadline (could be java.sql.Date or String or null)
                         Object ddRaw = c.get("drop_deadline");
                         String ddStr = "N/A";
                         if (ddRaw != null) {
-                            if (ddRaw instanceof Date) {
-                                LocalDate ld = ((Date) ddRaw).toLocalDate();
+                            if (ddRaw instanceof java.sql.Date) {
+                                LocalDate ld = ((java.sql.Date) ddRaw).toLocalDate();
                                 ddStr = ld.format(fmt);
                             } else if (ddRaw instanceof java.time.LocalDate) {
                                 ddStr = ((java.time.LocalDate) ddRaw).format(fmt);
@@ -166,7 +167,7 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
                                 c.get("credits"),
                                 c.get("status"),
                                 ddStr,
-                                "Drop" // button label
+                                "Drop"
                         });
                     }
                 } catch (Exception e) {
@@ -180,18 +181,15 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
         }.execute();
     }
 
-    /** RegistrationEventBus.Listener impl — called when user registers/drops a course elsewhere. */
     @Override
     public void onRegistrationChanged() {
-        // refresh visible course list
         reloadFromDb(null);
     }
 
-    // ---------- Button cell renderer/editor & helpers ----------
+    // ---------- Button renderer/editor & helpers (unchanged, but drop action uses StudentService) ----------
 
     private boolean canDropRow(int viewRowIndex) {
         if (rowsList == null || viewRowIndex < 0) return false;
-        // convert view index -> model index (handles sorting/filtering)
         int modelRowIndex = viewRowIndex;
         try {
             if (tableReference != null) modelRowIndex = tableReference.convertRowIndexToModel(viewRowIndex);
@@ -200,24 +198,16 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
         if (modelRowIndex < 0 || modelRowIndex >= rowsList.size()) return false;
         Map<String, Object> r = rowsList.get(modelRowIndex);
         Object ddRaw = r.get("drop_deadline");
-        if (ddRaw == null) {
-            // keep current policy: allow when drop_deadline is NULL
-            return true;
-        }
+        if (ddRaw == null) return true;
         LocalDate deadline;
-        if (ddRaw instanceof Date) {
-            deadline = ((Date) ddRaw).toLocalDate();
+        if (ddRaw instanceof java.sql.Date) {
+            deadline = ((java.sql.Date) ddRaw).toLocalDate();
         } else if (ddRaw instanceof LocalDate) {
             deadline = (LocalDate) ddRaw;
         } else {
-            // try parsing ISO format; if parse fails, allow by default (safe fallback)
-            try {
-                deadline = LocalDate.parse(ddRaw.toString());
-            } catch (Exception ex) {
-                return true;
-            }
+            try { deadline = LocalDate.parse(ddRaw.toString()); }
+            catch (Exception ex) { return true; }
         }
-        // Default: allow on or before deadline, disallow after.
         return !LocalDate.now().isAfter(deadline);
     }
 
@@ -232,17 +222,15 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
         return Long.parseLong(String.valueOf(sid));
     }
 
-    // Renderer: show a JButton-looking cell (disabled when cannot drop)
     private class ButtonRenderer extends JButton implements TableCellRenderer {
         public ButtonRenderer() { setOpaque(true); }
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
                                                        boolean isSelected, boolean hasFocus, int row, int column) {
             setText(value == null ? "" : value.toString());
-
             if (maintenanceMode || !actionsEnabled) {
                 setEnabled(false);
-                setBackground(new Color(220, 220, 220));  // light grey
+                setBackground(new Color(220, 220, 220));
                 setForeground(Color.DARK_GRAY);
             } else {
                 boolean ok = canDropRow(row);
@@ -251,16 +239,14 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
                     setBackground(new Color(220, 220, 220));
                     setForeground(Color.DARK_GRAY);
                 } else {
-                    setBackground(Theme.PRIMARY);   // normal action color
+                    setBackground(Theme.PRIMARY);
                     setForeground(Color.WHITE);
                 }
             }
-
             return this;
         }
     }
 
-    // Editor: handles the drop action when button clicked
     private class ButtonEditor extends DefaultCellEditor {
         private final JButton button = new JButton();
         private int currentRow;
@@ -269,12 +255,7 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
         public ButtonEditor(JCheckBox checkBox) {
             super(checkBox);
             button.setOpaque(true);
-            button.addActionListener(new ActionListener() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    fireEditingStopped();
-                }
-            });
+            button.addActionListener(e -> fireEditingStopped());
         }
 
         @Override
@@ -282,61 +263,60 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
                                                      boolean isSelected, int row, int column) {
             currentRow = row;
             button.setText(value == null ? "" : value.toString());
-
-            if (maintenanceMode || !actionsEnabled) {
-                button.setEnabled(false);
-            } else {
-                button.setEnabled(canDropRow(row));
-            }
-
+            if (maintenanceMode || !actionsEnabled) button.setEnabled(false);
+            else button.setEnabled(canDropRow(row));
             isPushed = true;
             return button;
         }
 
         @Override
         public Object getCellEditorValue() {
-            if (maintenanceMode || !actionsEnabled) {
-                return "Drop";  // ignore click completely
-            }
+            if (maintenanceMode || !actionsEnabled) return "Drop";
 
             if (isPushed) {
-                // perform drop in background
                 long sectionId = getSectionIdAt(currentRow);
-                long studId;
-                try {
-                    studId = Long.parseLong(studentId);
-                } catch (NumberFormatException ex) {
-                    JOptionPane.showMessageDialog(MyCoursesPanel.this, "Invalid student id: " + studentId);
-                    return "Drop";
-                }
-
                 int confirm = JOptionPane.showConfirmDialog(MyCoursesPanel.this,
                         "Are you sure you want to drop this section?",
                         "Confirm Drop",
                         JOptionPane.YES_NO_OPTION);
                 if (confirm != JOptionPane.YES_OPTION) {
+                    isPushed = false;
                     return "Drop";
                 }
 
-                // run drop in background
-                new SwingWorker<Boolean, Void>() {
+                // call service in background
+                new SwingWorker<Result, Void>() {
                     @Override
-                    protected Boolean doInBackground() throws Exception {
-                        RegistrationDAO dao = new RegistrationDAO();
-                        return dao.dropEnrollment(studId, sectionId);
+                    protected Result doInBackground() throws Exception {
+                        // StudentService handles DB and business rules
+                        return studentService.dropSection(studentId, sectionId);
                     }
 
                     @Override
                     protected void done() {
                         try {
-                            boolean ok = get();
+                            Result res = get();
+                            // Try common Result API: isOk/isSuccess + getMessage()
+                            boolean ok = false;
+                            String msg = null;
+                            try {
+                                ok = (boolean) res.getClass().getMethod("isOk").invoke(res);
+                                msg = (String) res.getClass().getMethod("getMessage").invoke(res);
+                            } catch (NoSuchMethodException nsme) {
+                                // fallback: try isSuccess/getMessage
+                                try {
+                                    ok = (boolean) res.getClass().getMethod("isSuccess").invoke(res);
+                                    msg = (String) res.getClass().getMethod("getMessage").invoke(res);
+                                } catch (Exception ignored) {}
+                            } catch (Exception ignored) {}
+
                             if (ok) {
-                                JOptionPane.showMessageDialog(MyCoursesPanel.this, "Dropped successfully.");
-                                reloadFromDb(null); // refresh this panel
+                                JOptionPane.showMessageDialog(MyCoursesPanel.this, msg == null ? "Dropped successfully." : msg);
+                                reloadFromDb(null);
                                 RegistrationEventBus.get().notifyChange();
                             } else {
                                 JOptionPane.showMessageDialog(MyCoursesPanel.this,
-                                        "Could not drop: deadline passed or not enrolled.",
+                                        msg == null ? "Could not drop the section." : msg,
                                         "Drop Failed",
                                         JOptionPane.WARNING_MESSAGE);
                                 reloadFromDb(null);
@@ -351,6 +331,7 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
                     }
                 }.execute();
             }
+
             isPushed = false;
             return "Drop";
         }
@@ -362,34 +343,23 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
         }
     }
 
-    /**
-     * Disables/enables the Drop buttons + table editors safely during maintenance mode.
-     * Uses the class-level JTable field `tableReference`.
-     */
     public void setActionsEnabled(boolean enabled) {
         this.actionsEnabled = enabled;
         tablePanelSetEnabled(enabled && !maintenanceMode);
         repaint();
     }
 
-    /**
-     * Disables table + cell editors safely
-     */
     private void tablePanelSetEnabled(boolean enabled) {
         try {
-            javax.swing.JTable t = this.tableReference;
+            JTable t = this.tableReference;
             if (t == null) return;
 
-            // enable/disable table itself
             t.setEnabled(enabled);
-
-            // stop any active cell editor
             TableCellEditor active = t.getCellEditor();
             if (active != null) {
                 try { active.stopCellEditing(); } catch (Exception ignore) {}
             }
 
-            // iterate columns and disable editor components that are DefaultCellEditor
             for (int col = 0; col < t.getColumnCount(); col++) {
                 TableCellEditor ed = t.getColumnModel().getColumn(col).getCellEditor();
                 if (ed instanceof javax.swing.DefaultCellEditor) {
@@ -398,19 +368,13 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
                 }
             }
 
-            // also disable search textbox if present
-            try {
-                if (this.txtSearchReference != null) this.txtSearchReference.setEnabled(enabled);
-            } catch (Exception ignore) {}
+            try { if (this.txtSearchReference != null) this.txtSearchReference.setEnabled(enabled); } catch (Exception ignore) {}
 
         } catch (Throwable ex) {
             ex.printStackTrace();
         }
     }
 
-    /**
-     * Finds the JTable inside the scroll pane
-     */
     private JTable findTable() {
         try {
             for (Component c : this.getComponents()) {
@@ -430,32 +394,22 @@ public class MyCoursesPanel extends JPanel implements RegistrationEventBus.Liste
         return null;
     }
 
-    /**
-     * Called by StudentPanel when maintenance mode toggles.
-     * Disables all interactive actions without breaking existing functionality.
-     */
     public void setMaintenanceMode(boolean on) {
         this.maintenanceMode = on;
-        setActionsEnabled(!on);   // disable table & search when maintenance ON
-        // force table redraw so renderers update appearance
+        setActionsEnabled(!on);
         if (tableReference != null) tableReference.repaint();
         repaint();
     }
 
-    // register/unregister with the event bus only while the component is showing
     @Override
     public void addNotify() {
         super.addNotify();
-        try {
-            RegistrationEventBus.get().register(this);
-        } catch (Exception ignore) {}
+        try { RegistrationEventBus.get().register(this); } catch (Exception ignore) {}
     }
 
     @Override
     public void removeNotify() {
-        try {
-            RegistrationEventBus.get().unregister(this);
-        } catch (Exception ignore) {}
+        try { RegistrationEventBus.get().unregister(this); } catch (Exception ignore) {}
         super.removeNotify();
     }
 }

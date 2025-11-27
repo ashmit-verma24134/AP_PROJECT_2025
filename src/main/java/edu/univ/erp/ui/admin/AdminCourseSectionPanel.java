@@ -10,6 +10,8 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.List;
+import edu.univ.erp.service.ServiceException;
+
 
 /**
  * Admin panel for managing courses and sections—clean version using services only.
@@ -73,19 +75,26 @@ public class AdminCourseSectionPanel extends JPanel {
         return p;
     }
 
-    private void loadCourses() {
-        courseModel.setRowCount(0);
+   private void loadCourses() {
+    courseModel.setRowCount(0);
+    try {
         List<Course> list = courseService.listAllCourses();
-
         for (Course c : list) {
             courseModel.addRow(new Object[]{
-                    c.getCourseId(),
-                    c.getCode(),
-                    c.getTitle(),
-                    c.getCredits()
+                c.getCourseId(),
+                c.getCode(),
+                c.getTitle(),
+                c.getCredits()
             });
         }
+    } catch (ServiceException ex) {
+        JOptionPane.showMessageDialog(this,
+            "Unable to load courses: " + ex.getMessage(),
+            "Error",
+            JOptionPane.ERROR_MESSAGE);
+        ex.printStackTrace();
     }
+}
 
     private void deleteSelectedCourse() {
         int row = courseTable.getSelectedRow();

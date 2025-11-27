@@ -7,12 +7,24 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.sql.SQLException;
 
 public class InstructorDaoImpl implements InstructorDao {
 
-    private final Connection conn;
+     private final Connection conn;
 
+    // DEFAULT CONSTRUCTOR (no throws)
+    public InstructorDaoImpl() {
+        Connection c = null;
+        try {
+            c = DBConnection.getErpConnection();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            // Optional: log or handle error
+        }
+        this.conn = c;
+    }
+
+    // Constructor if someone wants to inject custom connection
     public InstructorDaoImpl(Connection conn) {
         this.conn = conn;
     }

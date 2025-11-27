@@ -3,6 +3,7 @@ package edu.univ.erp.ui.student;
 import edu.univ.erp.data.StudentDao;
 import edu.univ.erp.data.StudentDaoImpl;
 import edu.univ.erp.service.RegistrationEventBus;
+import edu.univ.erp.service.StudentService;
 import edu.univ.erp.service.RegistrationEventBus;
 
 import edu.univ.erp.ui.Theme;
@@ -45,7 +46,7 @@ public class DashboardPanel extends JPanel implements RegistrationEventBus.Liste
     private final JPanel scheduleContainer = new JPanel();
     private final JPanel gradesContainer = new JPanel();
 
-    public DashboardPanel() {
+    public DashboardPanel(StudentService studentService) {
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 

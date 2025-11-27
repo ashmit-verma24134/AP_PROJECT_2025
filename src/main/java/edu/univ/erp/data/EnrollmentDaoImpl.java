@@ -20,8 +20,21 @@ import edu.univ.erp.util.DBConnection;
  */
 public class EnrollmentDaoImpl implements EnrollmentDao {
 
-    private final Connection conn;
+      private final Connection conn;
 
+    // DEFAULT CONSTRUCTOR (no throws)
+    public EnrollmentDaoImpl() {
+        Connection c = null;
+        try {
+            c = DBConnection.getErpConnection();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            // Optional: log or handle error
+        }
+        this.conn = c;
+    }
+
+    // Constructor if someone wants to inject custom connection
     public EnrollmentDaoImpl(Connection conn) {
         this.conn = conn;
     }

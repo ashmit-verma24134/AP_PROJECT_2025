@@ -23,10 +23,14 @@ public class AdminSettingsPanel extends JPanel {
 
     private final Runnable refreshBannerCallback;
 
-    /** NEW: Use service instead of DAO/DB code */
-    private final SettingsService settingsService = new SettingsServiceImpl();
+    private final SettingsService settingsService;
 
-    public AdminSettingsPanel(Runnable refreshBannerCallback) {
+
+    /** NEW: Use service instead of DAO/DB code */
+    //private final SettingsService settingsService = new SettingsServiceImpl();
+
+   public AdminSettingsPanel(SettingsService settingsService, Runnable refreshBannerCallback) {
+        this.settingsService = settingsService;      // injected
         this.refreshBannerCallback = refreshBannerCallback;
         init();
         loadSettings();

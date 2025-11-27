@@ -2,15 +2,20 @@ package edu.univ.erp.service;
 
 import edu.univ.erp.util.DBConnection;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.*;
 
+/**
+ * Implementation that queries the DB and returns CourseRow DTOs grouped by semester.
+ */
 public class StudentGradeServiceImpl implements StudentGradeService {
 
     @Override
-    public Map<String, List<Map<String, Object>>> loadGradesForStudent(String studentId) throws Exception {
+    public Map<String, List<CourseRow>> loadGradesForStudent(String studentId) throws Exception {
 
-        Map<String, List<Map<String, Object>>> bySemester = new LinkedHashMap<>();
+        Map<String, List<CourseRow>> bySemester = new LinkedHashMap<>();
 
         String sql =
                 "SELECT sec.semester AS sem_label, sec.year AS sem_year, e.enrollment_id, " +
@@ -40,15 +45,31 @@ public class StudentGradeServiceImpl implements StudentGradeService {
                             ? (year == null ? "Unknown" : "Year " + year)
                             : (sem + (year == null ? "" : " / " + year));
 
-                    Map<String, Object> row = new HashMap<>();
-                    row.put("enrollment_id", rs.getLong("enrollment_id"));
-                    row.put("course_code", rs.getString("course_code"));
-                    row.put("course_title", rs.getString("course_title"));
-                    row.put("credits", rs.getObject("credits"));
-                    row.put("final_letter", rs.getString("final_letter"));
-                    row.put("final_score", rs.getObject("final_score"));
+                    long enrollmentId = rs.getLong("enrollment_id");
+                    String courseCode = rs.getString("course_code");
+                    String courseTitle = rs.getString("course_title");
 
-                    bySemester.computeIfAbsent(key, k -> new ArrayList<>()).add(row);
+                    Integer credits = null;
+                    Object credObj = rs.getObject("credits");
+                    if (credObj instanceof Number) credits = ((Number) credObj).intValue();
+                    else if (credObj != null) {
+                        try { credits = Integer.parseInt(String.valueOf(credObj)); } catch (Exception ignored) {}
+                    }
+
+                    String finalLetter = rs.getString("final_letter");
+
+                    Double finalScore = null;
+                    Object fsObj = rs.getObject("final_score");
+                    if (fsObj instanceof Number) finalScore = ((Number) fsObj).doubleValue();
+                    else if (fsObj != null) {
+                        try { finalScore = Double.parseDouble(String.valueOf(fsObj)); } catch (Exception ignored) {}
+                    }
+
+                    StudentGradeService.CourseRow cr = new StudentGradeService.CourseRow(
+                            enrollmentId, courseCode, courseTitle, credits, finalLetter, finalScore
+                    );
+
+                    bySemester.computeIfAbsent(key, k -> new ArrayList<>()).add(cr);
                 }
             }
         }

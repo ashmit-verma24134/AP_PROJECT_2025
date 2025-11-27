@@ -2,8 +2,6 @@ package edu.univ.erp.ui.admin;
 
 import edu.univ.erp.ui.Theme;
 import edu.univ.erp.service.SectionService;
-import edu.univ.erp.data.SectionDaoImpl;
-
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -12,8 +10,8 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Dialog now uses SectionService instead of JDBC directly.
- * Functionality is 100% identical to your original version.
+ * Dialog using SectionService only.
+ * ZERO UI changes, ZERO functionality changes.
  */
 public class SectionDeadlineDialog extends JDialog {
 
@@ -24,19 +22,22 @@ public class SectionDeadlineDialog extends JDialog {
     private final JButton btnCancel;
     private final JLabel statusLabel;
 
+    /** NEW: Injected service instead of direct DB/DAO */
     private final SectionService sectionService;
 
     private static final DateTimeFormatter DATE_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    public SectionDeadlineDialog(Window owner, long sectionId) {
+    /**
+     *
+     */
+    public SectionDeadlineDialog(Window owner,
+                                 long sectionId,
+                                 SectionService sectionService) {
+
         super(owner, "Set Drop Deadline", ModalityType.APPLICATION_MODAL);
         this.sectionId = sectionId;
-
-        // create service with DAO using ERP connection
-        this.sectionService = new edu.univ.erp.service.SectionServiceImpl(
-                new SectionDaoImpl(DBConnection.getErpConnection())
-        );
+        this.sectionService = sectionService;   // <-- stored injected service
 
         setLayout(new BorderLayout(10, 10));
         setSize(450, 250);
@@ -116,7 +117,6 @@ public class SectionDeadlineDialog extends JDialog {
 
         add(buttons, BorderLayout.SOUTH);
 
-        // load existing deadline via service
         loadCurrentDeadline();
 
         setVisible(true);

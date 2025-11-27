@@ -14,7 +14,7 @@ import java.util.List;
 
 public class InstructorGradebookPanel extends JPanel {
 
-    private final long instructorId;
+    private long instructorId;
     private final SectionService sectionService;
     private final GradeService gradeService;
 
@@ -110,4 +110,23 @@ public class InstructorGradebookPanel extends JPanel {
             );
         }
     }
+
+    public void setInstructorContext(long instructorId, String term) {
+    // If you want instructorId to be dynamic, remove "final" from the field
+    this.instructorId = instructorId;
+    loadSections();
+}
+
+public void setEditable(boolean editable) {
+    // No change in functionality — UI stays same.
+    // But we disable table editing when maintenance = true
+    gradeTable.setEnabled(editable);
+}
+
+public void refreshForMaintenance() {
+    // Called when maintenance ends — just reload current sections.
+    loadSections();
+}
+
+
 }

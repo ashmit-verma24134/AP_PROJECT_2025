@@ -6,18 +6,18 @@ import edu.univ.erp.service.EnrollmentService;
 import edu.univ.erp.service.GradeService;
 import edu.univ.erp.service.InstructorService;
 import edu.univ.erp.service.SectionService;
+import edu.univ.erp.service.SettingsService;
 import edu.univ.erp.ui.MainFrame;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
-
 
 import javax.swing.*;
 import java.awt.*;
 
 /**
- * InstructorPanel — SERVICE-INJECTED VERSION
- * Uses InstructorService + CourseService + SectionService + GradeService
- * No direct DB calls except maintenance-mode checks.
+ * InstructorPanel — SERVICE-INJECTED (NO DB CONNECTION)
+ * Uses InstructorService + CourseService + SectionService + GradeService + SettingsService
+ * UI behavior is identical to your original version.
  */
 public class InstructorPanel extends JPanel {
 
@@ -27,6 +27,9 @@ public class InstructorPanel extends JPanel {
     private final SectionService sectionService;
     private final EnrollmentService enrollmentService;
     private final GradeService gradeService;
+
+    /** NEW: replaces DBConnection.isMaintenanceMode() **/
+    private final SettingsService settingsService;
 
     private final MainFrame mainFrame;
 
@@ -41,7 +44,7 @@ public class InstructorPanel extends JPanel {
     // nav buttons
     private JButton btnGradebook;
 
-    // CHILD PANELS (now service-based)
+    // CHILD PANELS
     private final MyCoursesPanel coursesPanel;
     private final InstructorGradebookPanel gradebookPanel;
     private final JPanel notificationsPanel = new NotificationPanel();
@@ -52,7 +55,6 @@ public class InstructorPanel extends JPanel {
     private String instructorUsername = "Instructor";
     private String instructorAuthUsername = null;
 
-    // header label
     private final JLabel welcomeLabel = new JLabel("Welcome, Instructor");
     private JButton changePasswordBtn;
 
@@ -65,7 +67,8 @@ public class InstructorPanel extends JPanel {
                            CourseService courseService,
                            SectionService sectionService,
                            EnrollmentService enrollmentService,
-                           GradeService gradeService) {
+                           GradeService gradeService,
+                           SettingsService settingsService) {
 
         this.mainFrame = mainFrame;
 
@@ -74,16 +77,22 @@ public class InstructorPanel extends JPanel {
         this.sectionService = sectionService;
         this.enrollmentService = enrollmentService;
         this.gradeService = gradeService;
+        this.settingsService = settingsService;   // NEW
 
-        // instantiate service-based children
-        this.coursesPanel = new MyCoursesPanel(enrollmentService, courseService, sectionService);
-        this.gradebookPanel = new InstructorGradebookPanel(gradeService, sectionService);
+        // build service-based sub panels
+        this.coursesPanel = new MyCoursesPanel(sectionService);
+        this.gradebookPanel = new InstructorGradebookPanel(
+        currentInstructorId,
+        sectionService,
+        gradeService
+);
+
 
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
-
         buildUI();
 
+        // periodic maintenance check
         javax.swing.Timer maintenancePoller = new javax.swing.Timer(3000, e -> updateMaintenanceState());
         maintenancePoller.setRepeats(true);
         maintenancePoller.setInitialDelay(0);
@@ -92,14 +101,13 @@ public class InstructorPanel extends JPanel {
         updateMaintenanceState();
     }
 
-    
 
     // ------------------------------------------------------------
-    // BUILD UI EXACTLY AS BEFORE (UNCHANGED VISUALLY)
+    // BUILD UI (unchanged)
     // ------------------------------------------------------------
     private void buildUI() {
 
-        // ----- HEADER -----
+        // HEADER
         JPanel headerWrap = new JPanel(new BorderLayout());
         headerWrap.setBackground(Theme.PRIMARY);
         headerWrap.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
@@ -127,7 +135,6 @@ public class InstructorPanel extends JPanel {
         rightPanel.add(logout);
         headerWrap.add(rightPanel, BorderLayout.EAST);
 
-        // banner
         JPanel headerAndBanner = new JPanel(new BorderLayout());
         headerAndBanner.add(headerWrap, BorderLayout.NORTH);
 
@@ -145,7 +152,7 @@ public class InstructorPanel extends JPanel {
         add(headerAndBanner, BorderLayout.NORTH);
 
 
-        // ----- SIDEBAR -----
+        // SIDEBAR
         navPanel.setPreferredSize(new Dimension(Theme.SIDEBAR_WIDTH, 0));
         navPanel.setBackground(Theme.SIDEBAR_BG);
 
@@ -169,16 +176,13 @@ public class InstructorPanel extends JPanel {
         add(navPanel, BorderLayout.WEST);
 
 
-        // ----- CARDS -----
-        cards.setBackground(Theme.BACKGROUND);
+        // CARDS
         cards.add(wrap(coursesPanel), "courses");
         cards.add(wrap(gradebookPanel), "gradebook");
         cards.add(wrap(notificationsPanel), "notifications");
         add(cards, BorderLayout.CENTER);
 
-
-        // ----- NAV ACTIONS -----
-
+        // NAV actions
         btnCourses.addActionListener(e -> {
             setNavActive(btnCourses);
             if (currentInstructorId > 0)
@@ -198,7 +202,6 @@ public class InstructorPanel extends JPanel {
         });
     }
 
-    // Helpers ----------------------------------------------------
 
     private JButton makeNavButton(String text) {
         JButton b = new JButton(text);
@@ -215,9 +218,9 @@ public class InstructorPanel extends JPanel {
 
     private void setNavActive(AbstractButton active) {
         for (Component c : navButtonsContainer.getComponents()) {
-            if (c instanceof AbstractButton) {
-                c.setBackground(Theme.SIDEBAR_BG);
-                ((AbstractButton) c).setForeground(Color.WHITE);
+            if (c instanceof AbstractButton ab) {
+                ab.setBackground(Theme.SIDEBAR_BG);
+                ab.setForeground(Color.WHITE);
             }
         }
         active.setBackground(Theme.SIDEBAR_ACTIVE);
@@ -241,10 +244,11 @@ public class InstructorPanel extends JPanel {
 
 
     // ------------------------------------------------------------
-    // MAINTENANCE STATE
+    // MAINTENANCE STATE — NOW SERVICE-BASED
     // ------------------------------------------------------------
     public void updateMaintenanceState() {
-        boolean maintenance = DBConnection.isMaintenanceMode();
+
+        boolean maintenance = settingsService.isMaintenanceOn();   // NEW: replaces DBConnection
 
         maintenanceBanner.setVisible(maintenance);
 
@@ -284,8 +288,8 @@ public class InstructorPanel extends JPanel {
             coursesPanel.loadForInstructor(instructorId, term);
         } catch (Throwable ignored) {}
 
-        if (notificationsPanel instanceof NotificationPanel) {
-            ((NotificationPanel) notificationsPanel).setInstructorContext(instructorId, term);
+        if (notificationsPanel instanceof NotificationPanel np) {
+            np.setInstructorContext(instructorId, term);
         }
 
         updateMaintenanceState();
@@ -300,7 +304,8 @@ public class InstructorPanel extends JPanel {
     // CHANGE PASSWORD
     // ------------------------------------------------------------
     private void showChangePasswordDialog() {
-        if (DBConnection.isMaintenanceMode()) {
+
+        if (settingsService.isMaintenanceOn()) { // NEW: uses service
             JOptionPane.showMessageDialog(this,
                     "Password changes are not allowed during maintenance.",
                     "Maintenance Active",

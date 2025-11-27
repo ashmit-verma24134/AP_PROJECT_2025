@@ -3,32 +3,26 @@ package edu.univ.erp.ui;
 import edu.univ.erp.service.AuthService;
 import edu.univ.erp.service.RegistrationEventBus;
 import edu.univ.erp.ui.student.*;
-import edu.univ.erp.util.DBConnection;
+import edu.univ.erp.service.SettingsService;
+import edu.univ.erp.service.StudentService;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.*;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import java.util.Map;
 
 /**
- * Integrated StudentPanel
+ * StudentPanel (refactored) - no direct DB access.
  *
- * Combines two variants:
- *  - stacked header + MaintenanceBanner (banner under header)
- *  - transparent overlay blocker that consumes input during maintenance
- *
- * Behavior:
- *  - Polls DB settings.key='maintenance_on' every 10s (immediate first check)
- *  - setMaintenanceState(boolean) toggles banner/blocker and updates UI
- *  - Registers MyCoursesPanel to RegistrationEventBus using register(...)
- *  - Provides setStudentId / setStudentUsername / setAuthUsername / change password UI
+ * Construction now requires SettingsService and StudentService instances
+ * (injected by MainFrame or whichever bootstrap creates UI).
  */
 public class StudentPanel extends JPanel {
 
     private final MainFrame mainFrame;
+    private final SettingsService settingsService;
+    private final StudentService studentService;
 
     // Banner shown under the header
     private final MaintenanceBanner maintenanceBanner = new MaintenanceBanner();
@@ -108,8 +102,14 @@ public class StudentPanel extends JPanel {
     // Auth username for change-password
     private String studentAuthUsername;
 
-    public StudentPanel(MainFrame mainFrame) {
+    /**
+     * New constructor: Services must be injected (no DB usage here).
+     */
+    public StudentPanel(MainFrame mainFrame, SettingsService settingsService, StudentService studentService) {
         this.mainFrame = mainFrame;
+        this.settingsService = settingsService;
+        this.studentService = studentService;
+
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
@@ -215,7 +215,7 @@ public class StudentPanel extends JPanel {
         maintenanceBlocker.setAlignmentX(0.0f);
         maintenanceBlocker.setAlignmentY(0.0f);
 
-        // add in order: cards first, blocker last so blocker is on top (OverlayLayout paints last added on top)
+        // add in order: cards first, blocker last so blocker is on top
         cardsWrapper.add(cards);
         cardsWrapper.add(maintenanceBlocker);
 
@@ -270,6 +270,20 @@ public class StudentPanel extends JPanel {
         // immediate sync at construction so UI shows correct state right away
         refreshMaintenance();
     }
+
+    public StudentPanel(MainFrame mainFrame) {
+    this.mainFrame = mainFrame;   // FIX — initializes the final field
+
+    setLayout(new BorderLayout());
+    setBackground(Theme.BACKGROUND);
+
+    buildU();       // if your panel has a build method
+
+    refreshMaintenance();  // if needed
+
+    // anything else the constructor previously had
+}
+
 
     private JButton makeNavButton(String text) {
         JButton b = new JButton(text);
@@ -342,33 +356,33 @@ public class StudentPanel extends JPanel {
             return;
         }
 
-        try (Connection conn = DBConnection.getErpConnection()) {
-            String q = "SELECT s.full_name, s.roll_no, u.username "
-                    + "FROM students s LEFT JOIN auth_db.users u ON s.user_id = u.user_id "
-                    + "WHERE s.student_id = ? LIMIT 1";
-
-            try (PreparedStatement ps = conn.prepareStatement(q)) {
-                ps.setLong(1, numericId);
-
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (rs.next()) {
-                        String uname = rs.getString("username");
-                        String full = rs.getString("full_name");
-                        String roll = rs.getString("roll_no");
-
-                        if (uname != null && !uname.isEmpty()) studentUsername = uname;
-                        else if (full != null && !full.isEmpty()) studentUsername = full;
-                        else if (roll != null && !roll.isEmpty()) studentUsername = roll;
-
-                        final String txt = "Welcome, " + studentUsername;
-                        SwingUtilities.invokeLater(() -> welcomeLabel.setText(txt));
-                    }
-                }
+        // Use studentService (no direct DB)
+        try {
+            Map<String, Object> overview = null;
+            try {
+                overview = studentService.getStudentOverview(studentId);
+            } catch (Exception e) {
+                // service could throw; fall back to generic display
+                System.err.println("setStudentId: studentService.getStudentOverview failed: " + e.getMessage());
             }
 
-        } catch (Exception ex) {
+            if (overview != null) {
+                String uname = null, full = null, roll = null;
+                if (overview.get("username") != null) uname = String.valueOf(overview.get("username"));
+                if (overview.get("full_name") != null) full = String.valueOf(overview.get("full_name"));
+                if (overview.get("roll_no") != null) roll = String.valueOf(overview.get("roll_no"));
+
+                if (uname != null && !uname.isEmpty()) studentUsername = uname;
+                else if (full != null && !full.isEmpty()) studentUsername = full;
+                else if (roll != null && !roll.isEmpty()) studentUsername = roll;
+            }
+
+        } catch (Throwable ex) {
             ex.printStackTrace();
         }
+
+        final String txt = "Welcome, " + studentUsername;
+        SwingUtilities.invokeLater(() -> welcomeLabel.setText(txt));
 
         // notify other panels
         dashboardPanel.setStudentId(studentId);
@@ -442,31 +456,21 @@ public class StudentPanel extends JPanel {
     }
 
     // ================= MAINTENANCE =================
-    // Robust refreshMaintenance with direct DB read
+    // Polling now uses SettingsService instead of direct DB.
     public void refreshMaintenance() {
         new SwingWorker<Boolean, Void>() {
             @Override
             protected Boolean doInBackground() {
                 boolean maintenance = false;
-                try (Connection conn = DBConnection.getErpConnection()) {
-                    try (PreparedStatement ps = conn.prepareStatement(
-                            "SELECT `value` FROM settings WHERE `key` = 'maintenance_on' LIMIT 1")) {
-                        try (ResultSet rs = ps.executeQuery()) {
-                            if (rs.next()) {
-                                String v = rs.getString(1);
-                                if (v != null) {
-                                    v = v.trim().toLowerCase();
-                                    maintenance = v.equals("1") || v.equals("true") || v.equals("on") || v.equals("yes");
-                                }
-                            }
-                        }
-                    }
+                try {
+                    // use settingsService, expecting it to have a friendly API like isMaintenanceOn()
+                    maintenance = settingsService != null && settingsService.isMaintenanceOn();
                 } catch (Exception ex) {
-                    System.err.println("refreshMaintenance: DB read failed: " + ex.getMessage());
+                    System.err.println("refreshMaintenance: settingsService read failed: " + ex.getMessage());
                     ex.printStackTrace();
                     maintenance = false; // safe default
                 }
-                System.out.println("refreshMaintenance: DB value -> maintenance=" + maintenance + " (thread=" + Thread.currentThread().getName() + ")");
+                System.out.println("refreshMaintenance: service value -> maintenance=" + maintenance + " (thread=" + Thread.currentThread().getName() + ")");
                 return maintenance;
             }
 
@@ -485,7 +489,7 @@ public class StudentPanel extends JPanel {
         }.execute();
     }
 
-    // Hardened setMaintenanceState
+    // Hardened setMaintenanceState (unchanged)
     private void setMaintenanceState(boolean maintenance) {
         System.out.println("setMaintenanceState called: maintenance=" + maintenance +
                 " | bannerVisible(before)=" + maintenanceBanner.isVisible() +
@@ -494,10 +498,8 @@ public class StudentPanel extends JPanel {
 
         SwingUtilities.invokeLater(() -> {
             try {
-                // 1) ensure banner visibility updated
                 maintenanceBanner.setVisible(maintenance);
 
-                // 2) ensure blocker visibility updated
                 maintenanceBlocker.setVisible(maintenance);
                 if (maintenance) {
                     maintenanceBlocker.requestFocusInWindow();
@@ -507,11 +509,6 @@ public class StudentPanel extends JPanel {
                     }
                 }
 
-                // NOTE: We intentionally DO NOT change nav visuals here.
-                // The blocker only covers the content cards (cardsWrapper),
-                // so the sidebar navigation remains usable and visually unchanged.
-
-                // 4) ensure panels that have actions know maintenance state
                 try { myCoursesPanel.setMaintenanceMode(maintenance); } catch (Throwable ignore) {}
                 try { myCoursesPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
                 try { catalogPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
@@ -520,7 +517,6 @@ public class StudentPanel extends JPanel {
                 try { dashboardPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
                 try { gradesPanel.setEnabled(!maintenance); } catch (Throwable ignore) {}
 
-                // 4b) ensure header actions respect maintenance (change password becomes view-only)
                 try {
                     if (changePassBtn != null) {
                         changePassBtn.setEnabled(!maintenance);
@@ -528,7 +524,6 @@ public class StudentPanel extends JPanel {
                     }
                 } catch (Throwable ignore) {}
 
-                // 5) force validate/repaint on affected containers so UI immediately reflects change
                 Component parentOfBanner = maintenanceBanner.getParent();
                 if (parentOfBanner != null) {
                     parentOfBanner.revalidate();
@@ -549,36 +544,11 @@ public class StudentPanel extends JPanel {
         });
     }
 
-    // Public helper to force an immediate refresh (call from admin UI after toggling DB)
     public void forceRefresh() {
         System.out.println("forceRefresh: manual trigger");
         refreshMaintenance();
     }
 
-    /**
-     * Change the nav appearance while keeping behavior intact.
-     * (left here for backwards compatibility; not called by default)
-     */
-    private void dimNavVisual(boolean maintenance) {
-        Color dimBg = new Color(230, 230, 230);
-        Color dimFg = new Color(110, 110, 110);
-        for (Component c : navButtonsContainer.getComponents()) {
-            if (c instanceof AbstractButton) {
-                if (maintenance) {
-                    c.setBackground(dimBg);
-                    ((AbstractButton) c).setForeground(dimFg);
-                } else {
-                    c.setBackground(Theme.SIDEBAR_BG);
-                    ((AbstractButton) c).setForeground(Color.WHITE);
-                }
-            }
-        }
-    }
-
-    /**
-     * Recursively disable interactive components so UI becomes view-only.
-     * Kept as a fallback but not used for visual preservation.
-     */
     @SuppressWarnings("unused")
     private void makeReadOnly(Component comp) {
         if (comp == null) return;
@@ -610,9 +580,6 @@ public class StudentPanel extends JPanel {
         }
     }
 
-    /**
-     * Re-enable components that were disabled by makeReadOnly.
-     */
     @SuppressWarnings("unused")
     private void makeReadWrite(Component comp) {
         if (comp == null) return;

@@ -27,9 +27,9 @@ public class CatalogPanel extends JPanel {
     private String studentId;
     private boolean actionsEnabled = true;
 
-    private final SectionService sectionService;     // ⬅️ NEW
-    private final StudentService studentService;     // ⬅️ existing
-    private EnrollmentService enrollmentService;     // ⬅️ optional if needed
+    private final SectionService sectionService;     //  NEW
+    private final StudentService studentService;     //  existing
+    private EnrollmentService enrollmentService;     //  optional if needed
 
     private RegistrationListener registrationListener;
     public void setRegistrationListener(RegistrationListener l) { this.registrationListener = l; }
@@ -46,6 +46,8 @@ public class CatalogPanel extends JPanel {
         initUI();
         reloadFromService(null);
     }
+
+
 
     public void setStudentId(String studentId) { this.studentId = studentId; }
 
@@ -358,4 +360,6 @@ public class CatalogPanel extends JPanel {
         @Override
         public Object getCellEditorValue() { return label; }
     }
+
+    
 }

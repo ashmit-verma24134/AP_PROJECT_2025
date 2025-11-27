@@ -1,6 +1,8 @@
 package edu.univ.erp.data;
 
 import edu.univ.erp.model.Section;
+import edu.univ.erp.util.DBConnection;
+
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,8 +14,21 @@ import java.util.Optional;
  */
 public class SectionDaoImpl implements SectionDao {
 
-    private final Connection conn;
+     private final Connection conn;
 
+    // DEFAULT CONSTRUCTOR (no throws)
+    public SectionDaoImpl() {
+        Connection c = null;
+        try {
+            c = DBConnection.getErpConnection();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            // Optional: log or handle error
+        }
+        this.conn = c;
+    }
+
+    // Constructor if someone wants to inject custom connection
     public SectionDaoImpl(Connection conn) {
         this.conn = conn;
     }

@@ -1,6 +1,6 @@
 package edu.univ.erp.ui.student;
 
-import edu.univ.erp.data.AssessmentComponent;
+import edu.univ.erp.service.AssessmentComponent;
 import edu.univ.erp.service.AssessmentService;
 import edu.univ.erp.ui.Theme;
 import org.jfree.chart.ChartFactory;

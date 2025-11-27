@@ -3,11 +3,9 @@ package edu.univ.erp.service;
 import edu.univ.erp.data.SectionDao;
 import edu.univ.erp.data.SectionRow;
 import edu.univ.erp.model.Section;
-import edu.univ.erp.service.SectionService;
 
 import java.sql.SQLException;
 import java.time.LocalDate;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,16 +25,16 @@ public class SectionServiceImpl implements SectionService {
         }
     }
 
-   @Override
-public List<SectionRow> getSectionsByInstructor(long instructorId, String term) {
-    try {
-        return dao.getSectionsByInstructor(instructorId, term);
-    } catch (Exception ex) {
-        ex.printStackTrace();
-        return List.of();
+    @Override
+    public List<SectionRow> getSectionsByInstructor(long instructorId, String term) {
+        try {
+            return dao.getSectionsByInstructor(instructorId, term);
+        } catch (Exception ex) {
+            // Prefer to return empty list on failure (original behavior).
+            ex.printStackTrace();
+            return List.of();
+        }
     }
-}
-
 
     @Override
     public boolean isMaintenanceOn() {
@@ -91,24 +89,22 @@ public List<SectionRow> getSectionsByInstructor(long instructorId, String term) 
     }
 
     @Override
-public List<Section> listAllSections() {
-    return dao.findFiltered(null, null);
-}
+    public List<Section> listAllSections() {
+        return dao.findFiltered(null, null);
+    }
 
-@Override
-public LocalDate getDropDeadline(long sectionId) throws Exception {
-    return dao.getDropDeadline(sectionId);
-}
+    @Override
+    public LocalDate getDropDeadline(long sectionId) throws Exception {
+        return dao.getDropDeadline(sectionId);
+    }
 
-@Override
-public boolean updateDropDeadline(long sectionId, LocalDate date) throws Exception {
-    return dao.updateDropDeadline(sectionId, date);
-}
+    @Override
+    public boolean updateDropDeadline(long sectionId, LocalDate date) throws Exception {
+        return dao.updateDropDeadline(sectionId, date);
+    }
 
-@Override
-public boolean clearDropDeadline(long sectionId) throws Exception {
-    return dao.clearDropDeadline(sectionId);
-}
-
-
+    @Override
+    public boolean clearDropDeadline(long sectionId) throws Exception {
+        return dao.clearDropDeadline(sectionId);
+    }
 }

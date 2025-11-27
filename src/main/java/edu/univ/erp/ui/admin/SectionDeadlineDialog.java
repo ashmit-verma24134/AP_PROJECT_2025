@@ -2,14 +2,12 @@ package edu.univ.erp.ui.admin;
 
 import edu.univ.erp.ui.Theme;
 import edu.univ.erp.service.SectionService;
-import edu.univ.erp.service.SectionServiceImpl;
 import edu.univ.erp.data.SectionDaoImpl;
-import edu.univ.erp.util.DBConnection;
+
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
@@ -36,19 +34,9 @@ public class SectionDeadlineDialog extends JDialog {
         this.sectionId = sectionId;
 
         // create service with DAO using ERP connection
-        SectionService tmp = null;
-try {
-    tmp = new SectionServiceImpl(
-            new SectionDaoImpl(DBConnection.getErpConnection())
-    );
-} catch (SQLException ex) {
-    JOptionPane.showMessageDialog(this,
-            "Failed to initialize section service: " + ex.getMessage(),
-            "Database Error",
-            JOptionPane.ERROR_MESSAGE);
-}
-this.sectionService = tmp;
-
+        this.sectionService = new edu.univ.erp.service.SectionServiceImpl(
+                new SectionDaoImpl(DBConnection.getErpConnection())
+        );
 
         setLayout(new BorderLayout(10, 10));
         setSize(450, 250);

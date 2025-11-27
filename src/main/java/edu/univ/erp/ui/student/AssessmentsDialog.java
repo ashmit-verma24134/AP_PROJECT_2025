@@ -1,9 +1,7 @@
 package edu.univ.erp.ui.student;
 
 import edu.univ.erp.data.AssessmentComponent;
-import edu.univ.erp.data.GradeDao;
-import edu.univ.erp.data.GradeDaoImpl;
-import edu.univ.erp.util.DBConnection;
+import edu.univ.erp.service.AssessmentService;
 import edu.univ.erp.ui.Theme;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
@@ -13,12 +11,11 @@ import org.jfree.data.general.DefaultPieDataset;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.sql.Connection;
 import java.util.List;
 
 /**
- * Modal dialog that shows assessment components (table) and a pie chart for a single enrollment.
- * Uses typed AssessmentComponent objects from GradeDaoImpl.
+ * Modal dialog that shows assessment components (table) and a pie chart
+ * for a single enrollment. Uses AssessmentService to fetch data.
  */
 public class AssessmentsDialog extends JDialog {
 
@@ -31,28 +28,41 @@ public class AssessmentsDialog extends JDialog {
     private final JPanel chartPanel;
     private final JLabel lblFinal;
 
-    public AssessmentsDialog(Window owner, long enrollmentId, String courseCode, String courseTitle) {
-        super(owner, "Assessments: " + courseCode + (courseTitle == null ? "" : " — " + courseTitle),
+    private final AssessmentService assessmentService;
+
+    public AssessmentsDialog(
+            Window owner,
+            long enrollmentId,
+            String courseCode,
+            String courseTitle,
+            AssessmentService assessmentService
+    ) {
+        super(owner,
+                "Assessments: " + courseCode + (courseTitle == null ? "" : " — " + courseTitle),
                 ModalityType.APPLICATION_MODAL);
 
         this.enrollmentId = enrollmentId;
         this.courseCode = courseCode;
         this.courseTitle = courseTitle;
+        this.assessmentService = assessmentService;
 
         setLayout(new BorderLayout(8,8));
         setBackground(Theme.BACKGROUND);
 
         // Header
-        JLabel header = new JLabel((courseCode == null ? "" : courseCode + " ") + (courseTitle == null ? "" : "- " + courseTitle));
+        JLabel header = new JLabel(
+                (courseCode == null ? "" : courseCode + " ") +
+                        (courseTitle == null ? "" : "- " + courseTitle)
+        );
         header.setFont(new Font("Segoe UI", Font.BOLD, 18));
         header.setBorder(BorderFactory.createEmptyBorder(10,10,0,10));
         add(header, BorderLayout.NORTH);
 
-        // center split: left table, right chart
+        // Split pane
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         split.setResizeWeight(0.62);
 
-        // left panel: final label + table
+        // Left side
         JPanel left = new JPanel(new BorderLayout(6,6));
         left.setBackground(Theme.BACKGROUND);
 
@@ -65,15 +75,16 @@ public class AssessmentsDialog extends JDialog {
         model = new DefaultTableModel(cols, 0) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
         };
+
         table = new JTable(model);
         table.setRowHeight(26);
         table.getTableHeader().setBackground(Theme.PRIMARY);
         table.getTableHeader().setForeground(Color.WHITE);
-
         left.add(new JScrollPane(table), BorderLayout.CENTER);
+
         split.setLeftComponent(left);
 
-        // right panel: chart
+        // Right: Chart
         chartPanel = new JPanel(new BorderLayout());
         chartPanel.setPreferredSize(new Dimension(380, 320));
         chartPanel.setBorder(BorderFactory.createTitledBorder("Performance"));
@@ -81,7 +92,7 @@ public class AssessmentsDialog extends JDialog {
 
         add(split, BorderLayout.CENTER);
 
-        // bottom close button
+        // Bottom close
         JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton btnClose = new JButton("Close");
         btnClose.addActionListener(e -> dispose());
@@ -92,7 +103,6 @@ public class AssessmentsDialog extends JDialog {
         pack();
         setLocationRelativeTo(owner);
 
-        // load components & chart
         loadComponents();
     }
 
@@ -104,11 +114,7 @@ public class AssessmentsDialog extends JDialog {
         SwingWorker<List<AssessmentComponent>, Void> w = new SwingWorker<>() {
             @Override
             protected List<AssessmentComponent> doInBackground() throws Exception {
-                try (Connection conn = DBConnection.getErpConnection()) {
-                    GradeDao dao = new GradeDaoImpl(conn);
-                    // include unpublished components so student can still see 'unpublished' rows
-                    return dao.findComponentsForEnrollment(enrollmentId, true);
-                }
+                return assessmentService.getComponents(enrollmentId);
             }
 
             @Override
@@ -117,78 +123,70 @@ public class AssessmentsDialog extends JDialog {
                     List<AssessmentComponent> rows = get();
                     model.setRowCount(0);
 
-                    // fill table and detect final row
                     AssessmentComponent finalComp = null;
+
                     for (AssessmentComponent r : rows) {
                         String name = safeStr(r.getName());
                         if ("Final".equalsIgnoreCase(name)) {
                             finalComp = r;
-                            continue; // we will append final at the end
+                            continue;
                         }
 
-                        String published = booleanToYesNo(r.getPublished());
-                        String weightStr = intToStr(r.getWeight());
-                        String scoreStr = doubleToStr(r.getStudentScore());
-                        String maxStr = doubleToStr(r.getMaxScore());
-
                         model.addRow(new Object[]{
-                                name == null ? "—" : name,
-                                weightStr,
-                                scoreStr,
-                                maxStr,
-                                published
+                                name,
+                                intToStr(r.getWeight()),
+                                doubleToStr(r.getStudentScore()),
+                                doubleToStr(r.getMaxScore()),
+                                booleanToYesNo(r.getPublished())
                         });
                     }
 
-                    // optionally show final as the last row (if exists)
                     if (finalComp != null) {
-                        String published = booleanToYesNo(finalComp.getPublished());
-                        String weightStr = intToStr(finalComp.getWeight());
-                        String scoreStr = doubleToStr(finalComp.getStudentScore());
-                        String maxStr = doubleToStr(finalComp.getMaxScore());
-
                         model.addRow(new Object[]{
                                 safeStr(finalComp.getName()),
-                                weightStr,
-                                scoreStr,
-                                maxStr,
-                                published
+                                intToStr(finalComp.getWeight()),
+                                doubleToStr(finalComp.getStudentScore()),
+                                doubleToStr(finalComp.getMaxScore()),
+                                booleanToYesNo(finalComp.getPublished())
                         });
 
-                        String finalText;
-                        Double sc = finalComp.getStudentScore();
-                        Double mx = finalComp.getMaxScore();
-                        Boolean pub = finalComp.getPublished();
-                        if (sc != null && mx != null && mx > 0.0) {
-                            double pct = sc * 100.0 / mx;
-                            finalText = String.format("Final Grade: %s (%.2f%%)", (pub != null && pub) ? "Released" : "Not Released", pct);
-                        } else if (sc != null) {
-                            finalText = "Final Score: " + formatDouble(sc);
-                        } else if (pub != null && pub) {
-                            finalText = "Final Grade: Released";
-                        } else {
-                            finalText = "Final Grade: N/A";
-                        }
-                        lblFinal.setText(finalText);
+                        updateFinalLabel(finalComp);
                     } else {
                         lblFinal.setText("Final Grade: (not computed)");
                     }
 
-                    // render pie
                     renderPie(rows);
 
                 } catch (Exception ex) {
                     ex.printStackTrace();
-                    model.setRowCount(0);
+                    lblFinal.setText("Final Grade: Error");
                     chartPanel.removeAll();
-                    chartPanel.add(new JLabel("Error loading components: " + ex.getMessage(), SwingConstants.CENTER), BorderLayout.CENTER);
+                    chartPanel.add(new JLabel("Error loading: " + ex.getMessage(), SwingConstants.CENTER));
                     chartPanel.revalidate();
                     chartPanel.repaint();
-                    lblFinal.setText("Final Grade: Error");
                 }
             }
         };
         w.execute();
+    }
+
+    private void updateFinalLabel(AssessmentComponent finalComp) {
+        Double sc = finalComp.getStudentScore();
+        Double mx = finalComp.getMaxScore();
+        Boolean pub = finalComp.getPublished();
+
+        if (sc != null && mx != null && mx > 0) {
+            double pct = sc * 100.0 / mx;
+            lblFinal.setText(String.format(
+                    "Final Grade: %s (%.2f%%)",
+                    (pub != null && pub) ? "Released" : "Not Released",
+                    pct
+            ));
+        } else if (sc != null) {
+            lblFinal.setText("Final Score: " + formatDouble(sc));
+        } else {
+            lblFinal.setText("Final Grade: " + ((pub != null && pub) ? "Released" : "N/A"));
+        }
     }
 
     private void renderPie(List<AssessmentComponent> rows) {
@@ -197,30 +195,27 @@ public class AssessmentsDialog extends JDialog {
 
         for (AssessmentComponent r : rows) {
             Double sc = r.getStudentScore();
-            if (sc == null) continue;
-            double val = sc.doubleValue();
-            if (val <= 0.0) continue;
+            if (sc == null || sc <= 0) continue;
+
             String label = safeStr(r.getName());
-            if (label == null || label.isBlank()) label = "component";
-            dataset.setValue(label + " (" + formatDouble(sc) + ")", val);
+            dataset.setValue(label + " (" + formatDouble(sc) + ")", sc);
         }
 
         if (dataset.getItemCount() == 0) {
-            chartPanel.add(new JLabel("No graded components to show", SwingConstants.CENTER), BorderLayout.CENTER);
-            chartPanel.revalidate();
-            chartPanel.repaint();
-            return;
+            chartPanel.add(new JLabel("No graded components", SwingConstants.CENTER));
+        } else {
+            JFreeChart chart = ChartFactory.createPieChart(
+                    "Assessment Performance", dataset, true, true, false
+            );
+            chartPanel.add(new ChartPanel(chart), BorderLayout.CENTER);
         }
 
-        JFreeChart chart = ChartFactory.createPieChart("Assessment Performance", dataset, true, true, false);
-        ChartPanel cp = new ChartPanel(chart);
-        chartPanel.add(cp, BorderLayout.CENTER);
         chartPanel.revalidate();
         chartPanel.repaint();
     }
 
-    // --- small helpers ---
-    private static String safeStr(String s) { return s == null ? null : s; }
+    // Helpers
+    private static String safeStr(String s) { return (s == null ? "—" : s); }
 
     private static String booleanToYesNo(Boolean b) {
         if (b == null) return "Unpublished";
@@ -228,18 +223,16 @@ public class AssessmentsDialog extends JDialog {
     }
 
     private static String intToStr(Integer v) {
-        if (v == null) return "—";
-        return String.valueOf(v);
+        return v == null ? "—" : String.valueOf(v);
     }
 
     private static String doubleToStr(Double d) {
-        if (d == null) return "—";
-        return formatDouble(d);
+        return d == null ? "—" : formatDouble(d);
     }
 
     private static String formatDouble(Double d) {
         if (d == null) return "—";
-        if (d % 1.0 == 0) return String.format("%d", d.longValue());
+        if (d % 1 == 0) return String.valueOf(d.longValue());
         return String.format("%.2f", d);
     }
 }

@@ -191,21 +191,28 @@ public class CourseEditorDialog extends JDialog {
                     String courseIdCol = detectCourseIdCol(md);
 
                     // load course row (we attempt to fetch typical columns)
-                    // ------------------- REPLACED WITH CourseService -------------------
-edu.univ.erp.service.CourseService courseService =
-        edu.univ.erp.service.getCourseService();  // however you access your DI
+                    String sql = "SELECT * FROM courses WHERE " + courseIdCol + " = ?";
+                    try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                        ps.setLong(1, courseId);
+                        try (ResultSet rs = ps.executeQuery()) {
+                            if (rs.next()) {
+                                // pick likely columns
+                                String[] codeCols = new String[]{"course_code","code","courseid","course"};
+                                String[] titleCols = new String[]{"title","course_title","name"};
+                                String[] creditCols = new String[]{"credits","credit"};
 
-edu.univ.erp.model.Course c = courseService.findById(courseId).orElse(null);
+                                String code = findFirstString(rs, codeCols);
+                                String title = findFirstString(rs, titleCols);
+                                String cr = findFirstString(rs, creditCols);
 
-if (c != null) {
-    SwingUtilities.invokeLater(() -> {
-        txtCode.setText(c.getCode());
-        txtTitle.setText(c.getTitle());
-        txtCredits.setText(c.getCredits() == null ? "" : c.getCredits().toString());
-    });
-}
-// -------------------------------------------------------------
-
+                                SwingUtilities.invokeLater(() -> {
+                                    txtCode.setText(code == null ? "" : code);
+                                    txtTitle.setText(title == null ? "" : title);
+                                    txtCredits.setText(cr == null ? "" : cr);
+                                });
+                            }
+                        }
+                    }
 
                     // load sections: we expect a sections table with course_id/section_id etc.
                     String secTbl = detectSectionsTable(md);
@@ -295,26 +302,36 @@ if (c != null) {
         new SwingWorker<Void, Void>() {
             Exception err = null;
             @Override protected Void doInBackground() {
-    try {
-        edu.univ.erp.service.CourseService courseService =
-                edu.univ.erp.AppContext.getCourseService();
+                try (Connection conn = DBConnection.getErpConnection()) {
+                    DatabaseMetaData md = conn.getMetaData();
+                    String courseIdCol = detectCourseIdCol(md);
 
-        Double cr = null;
-        if (!credits.isEmpty()) {
-            cr = Double.parseDouble(credits);
-        }
+                    // pick likely course column names
+                    String codeCol = detectColumn(md, "courses", new String[]{"course_code","code","courseid","course"});
+                    String titleCol = detectColumn(md, "courses", new String[]{"title","course_title","name"});
+                    String creditsCol = detectColumn(md, "courses", new String[]{"credits","credit"});
 
-        edu.univ.erp.model.Course c =
-                new edu.univ.erp.model.Course(courseId, code, title, cr);
+                    StringBuilder update = new StringBuilder("UPDATE courses SET ");
+                    java.util.List<String> sets = new java.util.ArrayList<>();
+                    if (codeCol != null) sets.add(codeCol + " = ?");
+                    if (titleCol != null) sets.add(titleCol + " = ?");
+                    if (creditsCol != null) sets.add(creditsCol + " = ?");
+                    if (sets.isEmpty()) throw new SQLException("No writable columns detected on courses table");
 
-        courseService.updateCourse(c);
+                    update.append(String.join(", ", sets));
+                    update.append(" WHERE ").append(courseIdCol).append(" = ?");
 
-    } catch (Exception ex) {
-        err = ex;
-    }
-    return null;
-}
-
+                    try (PreparedStatement ps = conn.prepareStatement(update.toString())) {
+                        int idx = 1;
+                        if (codeCol != null) ps.setString(idx++, code.isEmpty()? null : code);
+                        if (titleCol != null) ps.setString(idx++, title.isEmpty() ? null : title);
+                        if (creditsCol != null) {
+                            if (credits.isEmpty()) ps.setNull(idx++, Types.DECIMAL);
+                            else ps.setBigDecimal(idx++, new java.math.BigDecimal(credits));
+                        }
+                        ps.setLong(idx, courseId);
+                        ps.executeUpdate();
+                    }
                 } catch (Exception ex) {
                     err = ex;
                 }

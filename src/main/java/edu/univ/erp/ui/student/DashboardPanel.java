@@ -6,18 +6,21 @@ import edu.univ.erp.service.RegistrationEventBus;
 import edu.univ.erp.service.RegistrationEventBus;
 
 import edu.univ.erp.ui.Theme;
-import edu.univ.erp.util.DBConnection;
+
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import java.awt.*;
-import java.sql.Connection;
+
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import edu.univ.erp.service.DashboardService;
+import edu.univ.erp.service.DashboardServiceImpl;
+
 
 /**
  * DashboardPanel — shows student's CGPA, enrolled courses, credits, attendance, schedule, and recent grades.
@@ -26,6 +29,9 @@ import java.util.Map;
 public class DashboardPanel extends JPanel implements RegistrationEventBus.Listener 
  {
     private String studentId = null;
+
+    private final DashboardService dashboardService = new DashboardServiceImpl();
+
 
     // Info fields
     private final JLabel heading = new JLabel();
@@ -243,22 +249,8 @@ public class DashboardPanel extends JPanel implements RegistrationEventBus.Liste
         String displayName = (studentId == null ? "—" : studentId);
         // try to prefer username/full_name if available
         if (studentId != null) {
-            try (Connection conn = DBConnection.getErpConnection()) {
-                String q = "SELECT s.full_name, s.roll_no, u.username " +
-                           "FROM students s LEFT JOIN auth_db.users u ON s.user_id = u.user_id WHERE s.student_id = ? LIMIT 1";
-                try (PreparedStatement ps = conn.prepareStatement(q)) {
-                    ps.setString(1, studentId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) {
-                            String uname = rs.getString("username");
-                            String full = rs.getString("full_name");
-                            String roll = rs.getString("roll_no");
-                            if (uname != null && !uname.isEmpty()) displayName = uname;
-                            else if (full != null && !full.isEmpty()) displayName = full;
-                            else if (roll != null && !roll.isEmpty()) displayName = roll;
-                        }
-                    }
-                }
+            try {
+                displayName = dashboardService.loadDisplayName(studentId);
             } catch (Exception ex) {
                 ex.printStackTrace();
             }
@@ -289,9 +281,8 @@ public class DashboardPanel extends JPanel implements RegistrationEventBus.Liste
         new SwingWorker<Map<String,Object>, Void>() {
             @Override
             protected Map<String, Object> doInBackground() {
-                try (Connection conn = DBConnection.getErpConnection()) {
-                    StudentDao dao = new StudentDaoImpl(conn);
-                    return dao.getStudentOverview(studentId);
+                try {
+                    return dashboardService.loadOverview(studentId);
                 } catch (Exception ex) {
                     ex.printStackTrace();
                     return new HashMap<>();
@@ -338,10 +329,12 @@ public void setActionsEnabled(boolean enabled) {
         new SwingWorker<List<Map<String,Object>>, Void>() {
             @Override
             protected List<Map<String, Object>> doInBackground() throws Exception {
-                try (Connection conn = DBConnection.getErpConnection()) {
-                    StudentDao dao = new StudentDaoImpl(conn);
-                    return dao.getUpcomingSchedule(studentId, 6);
-                }
+               try {
+    return dashboardService.loadUpcomingSchedule(studentId, 6);
+} catch (Exception ex) {
+    ex.printStackTrace();
+    return List.of();
+}
             }
 
             @Override
@@ -383,9 +376,11 @@ public void setActionsEnabled(boolean enabled) {
         new SwingWorker<List<Map<String,Object>>, Void>() {
             @Override
             protected List<Map<String, Object>> doInBackground() throws Exception {
-                try (Connection conn = DBConnection.getErpConnection()) {
-                    StudentDao dao = new StudentDaoImpl(conn);
-                    return dao.getRecentGrades(studentId, 6);
+                try {
+                    return dashboardService.loadRecentGrades(studentId, 6);
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    return List.of();
                 }
             }
 

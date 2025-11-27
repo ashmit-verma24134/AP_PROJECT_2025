@@ -7,6 +7,8 @@ import edu.univ.erp.service.AdminService;
 import edu.univ.erp.service.SettingsService;
 import edu.univ.erp.service.UserService;
 import edu.univ.erp.service.AuthService;
+import edu.univ.erp.service.CourseService;
+import edu.univ.erp.service.SectionService;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -19,17 +21,17 @@ import java.util.Map;
  * AdminPanel — SERVICE-BASED VERSION
  * -------------------------------------------------------------
  *  No direct DB calls
- *  No SettingsDao / SettingsDaoImpl / Connection usage
- * ✔ Uses SettingsService for maintenance mode
- * ✔ Uses AdminService for username lookup, user info
- * ✔ UI structure unchanged
+ *  Uses injected services
  * -------------------------------------------------------------
  */
 public class AdminPanel extends JPanel {
 
     // ------------ Injected Services ------------
     private final AdminService adminService;
+    private final CourseService courseService;
+    private final SectionService sectionService;
     private final SettingsService settingsService;
+    private final UserService userService;
 
     // ------------ UI ------------
     private final JPanel cards = new JPanel(new CardLayout());
@@ -49,24 +51,43 @@ public class AdminPanel extends JPanel {
     // ------------------------------------------------------------
     public AdminPanel(MainFrame mainFrame,
                       AdminService adminService,
-                      SettingsService settingsService) {
-
+                      SettingsService settingsService,
+                      CourseService courseService,
+                      SectionService sectionService,
+                      UserService userService) {
         this.mainFrame = mainFrame;
         this.adminService = adminService;
         this.settingsService = settingsService;
+        this.courseService = courseService;
+        this.sectionService = sectionService;
+        this.userService = userService;
 
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
+        initTabs();
+    }
+
+
+
+
+    // ------------------------------------------------------------
+    // Compose header/sidebar/content and pages
+    // ------------------------------------------------------------
+    private void initTabs() {
         initHeader();
         initSidebarAndContent();
         registerDefaultPages();
 
+        // add cards panel to center (already added in initSidebarAndContent())
+        // ensure at least one page shown
         if (!pages.isEmpty()) {
             String first = pages.keySet().iterator().next();
             showCard(first);
+            updateNavSelection(first);
         }
 
+        // ensure maintenance UI is synced at startup
         refreshMaintenanceBanner();
     }
 
@@ -197,8 +218,15 @@ public class AdminPanel extends JPanel {
     // Page Registration
     // ------------------------------------------------------------
     private void registerDefaultPages() {
+        // AdminUsersPanel requires UserService
         addPage("Users", new AdminUsersPanel(userService), "Users");
-        addPage("Sections", new AdminCourseSectionPanel(), "Sections");
+
+        // AdminCourseSectionPanel requires CourseService, SectionService, AdminService
+        addPage("Sections", new AdminCourseSectionPanel(courseService, sectionService, adminService), "Sections");
+
+        // AdminSettingsPanel - assumes there's a constructor (SettingsService, Runnable)
+        // If your AdminSettingsPanel only has (SettingsService) constructor, replace the call with:
+        // addPage("Settings", new AdminSettingsPanel(settingsService), "Settings");
         addPage("Settings", new AdminSettingsPanel(settingsService, this::refreshMaintenanceBanner), "Settings");
     }
 
@@ -207,6 +235,7 @@ public class AdminPanel extends JPanel {
         cards.add(panel, name);
 
         if (navKey != null && navButtons.containsKey(navKey)) {
+            // make the sidebar button switch to this page when clicked
             navButtons.get(navKey).addActionListener(e -> showCard(name));
         }
     }
@@ -242,7 +271,9 @@ public class AdminPanel extends JPanel {
     // ------------------------------------------------------------
     public void setAdminUsername(String username) {
         this.adminUsername = username == null ? "Admin" : username;
-        welcomeLabel.setText("Welcome, " + this.adminUsername);
+        if (welcomeLabel != null) {
+            welcomeLabel.setText("Welcome, " + this.adminUsername);
+        }
     }
 
     public void setAdminUserId(long uid) {

@@ -16,7 +16,7 @@ import java.awt.event.WindowEvent;
  *       // reload callback - will be called on EDT after successful update
  *       gradesPanel.reload();
  *       transcriptPanel.reloadForStudent(); // if you want transcript refreshed too
- *   });
+ *   }, gradeServiceInstance);
  *   dlg.setVisible(true);
  */
 public class GradeEditorDialog extends JDialog {
@@ -31,16 +31,24 @@ public class GradeEditorDialog extends JDialog {
     private final long studentId;
     private final Runnable onSuccess;
 
+    // injected service (must be provided by caller)
+    private final GradeService gradeService;
+
+    /**
+     * Constructor: NOTE the final parameter gradeService must be supplied (a concrete implementation).
+     */
     public GradeEditorDialog(Window owner,
                              long enrollmentId, String component,
                              Double curScore, Double curMax, Double curWeight,
                              long studentId,
-                             Runnable onSuccess) {
+                             Runnable onSuccess,
+                             GradeService gradeService) {
         super(owner, "Edit " + component, ModalityType.APPLICATION_MODAL);
         this.enrollmentId = enrollmentId;
         this.component = component;
         this.studentId = studentId;
         this.onSuccess = onSuccess;
+        this.gradeService = gradeService;
 
         if (curScore != null) txtScore.setText(String.valueOf(curScore));
         if (curMax != null) txtMax.setText(String.valueOf(curMax));
@@ -49,6 +57,16 @@ public class GradeEditorDialog extends JDialog {
         initUI();
         pack();
         setLocationRelativeTo(owner);
+    }
+
+    // Optional convenience constructor that keeps old signature but forces callers to set gradeService later.
+    // I do NOT recommend using this; prefer the constructor that accepts GradeService.
+    public GradeEditorDialog(Window owner,
+                             long enrollmentId, String component,
+                             Double curScore, Double curMax, Double curWeight,
+                             long studentId,
+                             Runnable onSuccess) {
+        this(owner, enrollmentId, component, curScore, curMax, curWeight, studentId, onSuccess, null);
     }
 
     private void initUI() {
@@ -104,8 +122,10 @@ public class GradeEditorDialog extends JDialog {
         btnCancel.setEnabled(false);
         SwingWorker<Void, Void> w = new SwingWorker<>() {
             @Override protected Void doInBackground() throws Exception {
-                GradeService gs = new GradeService();
-                gs.updateScoreAndRecompute(enrollmentId, component, score, maxScore, weight, studentId);
+                if (gradeService == null) {
+                    throw new IllegalStateException("GradeService not provided to GradeEditorDialog. Construct with a GradeService instance.");
+                }
+                gradeService.updateScoreAndRecompute(enrollmentId, component, score, maxScore, weight, studentId);
                 return null;
             }
 

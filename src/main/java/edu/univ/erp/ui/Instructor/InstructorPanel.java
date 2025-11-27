@@ -9,7 +9,7 @@ import edu.univ.erp.service.SectionService;
 import edu.univ.erp.ui.MainFrame;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
-import edu.univ.erp.util.DBConnection;
+
 
 import javax.swing.*;
 import java.awt.*;

@@ -10,6 +10,8 @@ import javax.swing.*;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.*;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.util.Map;
 
 /**
@@ -17,6 +19,10 @@ import java.util.Map;
  *
  * Construction now requires SettingsService and StudentService instances
  * (injected by MainFrame or whichever bootstrap creates UI).
+ *
+ * This version instantiates subpanels via reflection and invokes optional methods
+ * only if present. That makes it tolerant to varying constructor signatures on subpanels
+ * after refactor (no-arg, (MainFrame), (MainFrame, SettingsService), (MainFrame, SettingsService, StudentService)).
  */
 public class StudentPanel extends JPanel {
 
@@ -41,24 +47,17 @@ public class StudentPanel extends JPanel {
             setVisible(false);
             setFocusable(true);
 
-            // Consume mouse events
             addMouseListener(new MouseAdapter() {});
             addMouseMotionListener(new MouseMotionAdapter() {});
             addMouseWheelListener(e -> {});
-            // Consume keyboard events when focused
             addKeyListener(new KeyAdapter() {});
-
-            // ensure it can receive focus
             setFocusTraversalKeysEnabled(false);
-
-            // fill available space in overlay layout
             setAlignmentX(0.0f);
             setAlignmentY(0.0f);
         }
 
         @Override
         public boolean contains(int x, int y) {
-            // When visible, consume all mouse interactions
             return isVisible();
         }
 
@@ -79,13 +78,13 @@ public class StudentPanel extends JPanel {
         }
     };
 
-    // panels
-    private final DashboardPanel dashboardPanel = new DashboardPanel();
-    private final CatalogPanel catalogPanel = new CatalogPanel();
-    private final TimetablePanel timetablePanel = new TimetablePanel();
-    private final TranscriptPanel transcriptPanel = new TranscriptPanel();
-    private final SemesterGradesPanel gradesPanel = new SemesterGradesPanel();
-    private final MyCoursesPanel myCoursesPanel = new MyCoursesPanel();
+    // panels (lazily created)
+    private JComponent dashboardPanel;
+    private JComponent catalogPanel;
+    private JComponent timetablePanel;
+    private JComponent transcriptPanel;
+    private JComponent gradesPanel;
+    private JComponent myCoursesPanel;
 
     private JLabel welcomeLabel;
     private String studentUsername = "Student";
@@ -143,7 +142,6 @@ public class StudentPanel extends JPanel {
         JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
         rightButtons.setOpaque(false);
 
-        // assign changePassBtn to field so maintenance can toggle it
         changePassBtn = new JButton("Change Password");
         changePassBtn.setPreferredSize(new Dimension(150, 32));
         changePassBtn.addActionListener(e -> showChangePasswordDialog());
@@ -198,24 +196,24 @@ public class StudentPanel extends JPanel {
         add(navPanel, BorderLayout.WEST);
 
         // ------------ CARD CONTENT (wrapped for overlay) ------------
-        cards.add(wrapInPadding(dashboardPanel), "dashboard");
-        cards.add(wrapInPadding(catalogPanel), "catalog");
-        cards.add(wrapInPadding(timetablePanel), "timetable");
-        cards.add(wrapInPadding(transcriptPanel), "transcript");
-        cards.add(wrapInPadding(myCoursesPanel), "mycourses");
-        cards.add(wrapInPadding(gradesPanel), "grades");
+        // We add placeholder panels now; real panels are created lazily and replaced when needed.
+dashboardPanel = createAndAddPanel(uiClass("DashboardPanel"), "dashboard");
+catalogPanel  = createAndAddPanel(uiClass("CatalogPanel"), "catalog");
+timetablePanel = createAndAddPanel(uiClass("TimetablePanel"), "timetable");
+transcriptPanel = createAndAddPanel(uiClass("TranscriptPanel"), "transcript");
+myCoursesPanel = createAndAddPanel(uiClass("MyCoursesPanel"), "mycourses");
+gradesPanel    = createAndAddPanel(uiClass("SemesterGradesPanel"), "grades");
+
 
         // Prepare overlay wrapper using OverlayLayout
         cardsWrapper.setLayout(new OverlayLayout(cardsWrapper));
         cardsWrapper.setOpaque(false);
 
-        // Ensure cards & blocker alignment
         cards.setAlignmentX(0.0f);
         cards.setAlignmentY(0.0f);
         maintenanceBlocker.setAlignmentX(0.0f);
         maintenanceBlocker.setAlignmentY(0.0f);
 
-        // add in order: cards first, blocker last so blocker is on top
         cardsWrapper.add(cards);
         cardsWrapper.add(maintenanceBlocker);
 
@@ -223,10 +221,9 @@ public class StudentPanel extends JPanel {
 
         // Register MyCoursesPanel to the event bus (safe call)
         try {
-            RegistrationEventBus.get().register(() -> myCoursesPanel.onRegistrationChanged());
-            System.out.println("StudentPanel: registered myCoursesPanel to RegistrationEventBus (register lambda)");
+            RegistrationEventBus.get().register(() -> invokeIfExists(myCoursesPanel, "onRegistrationChanged"));
+            System.out.println("StudentPanel: registered myCoursesPanel to RegistrationEventBus (lambda)");
         } catch (Throwable t) {
-            // fallback: try older API if available
             try {
                 RegistrationEventBus.get().addListener(myCoursesPanel);
                 System.out.println("StudentPanel: registered myCoursesPanel to RegistrationEventBus (addListener)");
@@ -244,18 +241,24 @@ public class StudentPanel extends JPanel {
         btnMyCourses.addActionListener(e -> {
             setNavActive(btnMyCourses);
             System.out.println("StudentPanel: My Courses button clicked -> reloading myCoursesPanel");
-            try { myCoursesPanel.reloadFromDb(null); } catch (Throwable ignore) {}
+            invokeIfExists(myCoursesPanel, "reloadFromDb", (Class<?>[]) null); // attempt reload
             showCard("mycourses");
         });
         btnGrades.addActionListener(e -> { setNavActive(btnGrades); showCard("grades"); });
 
         // ---------- REGISTRATION LISTENER FOR CATALOG ----------
-        catalogPanel.setRegistrationListener(() -> {
-            try { myCoursesPanel.onRegistrationChanged(); } catch (Throwable ignore) {}
-            try { timetablePanel.reloadForStudent(); } catch (Throwable ignore) {}
-            try { transcriptPanel.reloadForStudent(); } catch (Throwable ignore) {}
-            try { dashboardPanel.onRegistrationChanged(); } catch (Throwable ignore) {}
-        });
+        // attempt to set registration listener on catalog panel if that API exists
+        try {
+            Method setReg = catalogPanel.getClass().getMethod("setRegistrationListener", Runnable.class);
+            setReg.invoke(catalogPanel, (Runnable) () -> {
+                try { invokeIfExists(myCoursesPanel, "onRegistrationChanged"); } catch (Throwable ignore) {}
+                try { invokeIfExists(timetablePanel, "reloadForStudent"); } catch (Throwable ignore) {}
+                try { invokeIfExists(transcriptPanel, "reloadForStudent"); } catch (Throwable ignore) {}
+                try { invokeIfExists(dashboardPanel, "onRegistrationChanged"); } catch (Throwable ignore) {}
+            });
+        } catch (Throwable ignore) {
+            // If method not present, no-op
+        }
 
         SwingUtilities.invokeLater(() -> {
             setNavActive(btnDashboard);
@@ -271,19 +274,121 @@ public class StudentPanel extends JPanel {
         refreshMaintenance();
     }
 
-    public StudentPanel(MainFrame mainFrame) {
-    this.mainFrame = mainFrame;   // FIX — initializes the final field
+    // Helper to resolve a panel class name to a Class object in edu.univ.erp.ui.student package
+    // Returns the Class object if found, otherwise null.
+    private static Class<?> uiClass(String simpleName) {
+        String base = "edu.univ.erp.ui.student.";
+        try {
+            return Class.forName(base + simpleName);
+        } catch (ClassNotFoundException e) {
+            // Not found: maybe class name differs. Return null and the code will place a placeholder.
+            return null;
+        }
+    }
 
-    setLayout(new BorderLayout());
-    setBackground(Theme.BACKGROUND);
+    // create and add panel to cards with given card name. If the real class isn't present or instantiation fails,
+    // it creates a placeholder panel that shows an error label.
+    private JComponent createAndAddPanel(Class<?> panelClass, String cardName) {
+        JComponent panel;
+        if (panelClass != null) {
+            panel = instantiatePanel(panelClass);
+        } else {
+            panel = placeholderPanel("Missing: " + cardName + " (class not found)");
+        }
+        cards.add(wrapInPadding(panel), cardName);
+        return panel;
+    }
 
-    buildU();       // if your panel has a build method
+    // instantiatePanel tries several constructor signatures. Falls back to a placeholder on failure.
+    @SuppressWarnings("unchecked")
+    private JComponent instantiatePanel(Class<?> cls) {
+        try {
+            // 1) (MainFrame, SettingsService, StudentService)
+            try {
+                Constructor<?> c = cls.getConstructor(MainFrame.class, SettingsService.class, StudentService.class);
+                Object o = c.newInstance(mainFrame, settingsService, studentService);
+                if (o instanceof JComponent) return (JComponent) o;
+            } catch (Throwable ignored) {}
 
-    refreshMaintenance();  // if needed
+            // 2) (MainFrame, SettingsService)
+            try {
+                Constructor<?> c = cls.getConstructor(MainFrame.class, SettingsService.class);
+                Object o = c.newInstance(mainFrame, settingsService);
+                if (o instanceof JComponent) return (JComponent) o;
+            } catch (Throwable ignored) {}
 
-    // anything else the constructor previously had
-}
+            // 3) (MainFrame)
+            try {
+                Constructor<?> c = cls.getConstructor(MainFrame.class);
+                Object o = c.newInstance(mainFrame);
+                if (o instanceof JComponent) return (JComponent) o;
+            } catch (Throwable ignored) {}
 
+            // 4) no-arg
+            try {
+                Constructor<?> c = cls.getConstructor();
+                Object o = c.newInstance();
+                if (o instanceof JComponent) return (JComponent) o;
+            } catch (Throwable ignored) {}
+
+            // Nothing worked
+            return placeholderPanel("Unable to instantiate " + cls.getSimpleName());
+        } catch (Throwable t) {
+            t.printStackTrace();
+            return placeholderPanel("Error instantiating " + cls.getSimpleName());
+        }
+    }
+
+    private JComponent placeholderPanel(String msg) {
+        JPanel p = new JPanel(new BorderLayout());
+        JLabel l = new JLabel("<html><body style='padding:10px;color:#600;'>" + msg + "</body></html>");
+        p.add(l, BorderLayout.NORTH);
+        p.setBackground(Theme.SURFACE);
+        return p;
+    }
+
+    // Safely invoke a no-arg method if it exists on the target
+    private void invokeIfExists(Object target, String methodName, Class<?>... paramTypes) {
+        if (target == null) return;
+        try {
+            Method m;
+            if (paramTypes == null || paramTypes.length == 0) {
+                m = target.getClass().getMethod(methodName);
+                m.setAccessible(true);
+                m.invoke(target);
+            } else {
+                m = target.getClass().getMethod(methodName, paramTypes);
+                m.setAccessible(true);
+                // no args invocation here (we only support arg-less calls with paramTypes==null above)
+                m.invoke(target);
+            }
+        } catch (NoSuchMethodException nsme) {
+            // ignore - method not present
+        } catch (Throwable t) {
+            System.err.println("invokeIfExists: failed to invoke " + methodName + " on " + target.getClass().getSimpleName() + ": " + t.getMessage());
+            //t.printStackTrace();
+        }
+    }
+
+    // variant that calls method with single Object param (useful for reloadFromDb(null) style calls)
+    private void invokeIfExistsWithArg(Object target, String methodName, Object arg) {
+        if (target == null) return;
+        try {
+            Method m = target.getClass().getMethod(methodName, arg == null ? Object.class : arg.getClass());
+            m.setAccessible(true);
+            m.invoke(target, arg);
+        } catch (NoSuchMethodException nsme) {
+            // try method that accepts (String) if arg was null (common pattern)
+            try {
+                Method m2 = target.getClass().getMethod(methodName, String.class);
+                m2.setAccessible(true);
+                m2.invoke(target, (Object) null);
+            } catch (Throwable ignore) {}
+        } catch (Throwable t) {
+            System.err.println("invokeIfExistsWithArg: failed to invoke " + methodName + " on " + target.getClass().getSimpleName() + ": " + t.getMessage());
+            //t.printStackTrace();
+        }
+    }
 
     private JButton makeNavButton(String text) {
         JButton b = new JButton(text);
@@ -310,16 +415,17 @@ public class StudentPanel extends JPanel {
     }
 
     private void showCard(String name) {
-        // ensure maintenance state is fresh when switching views
         refreshMaintenance();
 
         CardLayout cl = (CardLayout) cards.getLayout();
         cl.show(cards, name);
 
-        // extra safety: reload my courses when visible
         if ("mycourses".equals(name)) {
             System.out.println("StudentPanel: showCard -> reloading myCoursesPanel (safety)");
-            try { myCoursesPanel.reloadFromDb(null); } catch (Throwable ignore) {}
+            // try several common reload method names
+            invokeIfExists(myCoursesPanel, "reloadFromDb");
+            invokeIfExists(myCoursesPanel, "reload");
+            invokeIfExistsWithArg(myCoursesPanel, "reloadFromDb", (Object) null);
         }
     }
 
@@ -344,25 +450,28 @@ public class StudentPanel extends JPanel {
         } catch (NumberFormatException nfe) {
             final String txt = "Welcome, " + (studentId == null ? "Student" : studentId);
             SwingUtilities.invokeLater(() -> welcomeLabel.setText(txt));
-            dashboardPanel.setStudentId(studentId);
-            catalogPanel.setStudentId(studentId);
-            timetablePanel.setStudentId(studentId);
-            transcriptPanel.setStudentId(studentId);
-            gradesPanel.setStudentId(studentId);
-            myCoursesPanel.setStudentId(studentId);
-            catalogPanel.reloadFromDb(null);
-            timetablePanel.reloadForStudent();
-            transcriptPanel.reloadForStudent();
+            // try to set id on child panels if APIs exist
+            invokeIfExistsWithArg(dashboardPanel, "setStudentId", studentId);
+            invokeIfExistsWithArg(catalogPanel, "setStudentId", studentId);
+            invokeIfExistsWithArg(timetablePanel, "setStudentId", studentId);
+            invokeIfExistsWithArg(transcriptPanel, "setStudentId", studentId);
+            invokeIfExistsWithArg(gradesPanel, "setStudentId", studentId);
+            invokeIfExistsWithArg(myCoursesPanel, "setStudentId", studentId);
+
+            invokeIfExists(catalogPanel, "reloadFromDb");
+            invokeIfExists(timetablePanel, "reloadForStudent");
+            invokeIfExists(transcriptPanel, "reloadForStudent");
             return;
         }
+
+        
 
         // Use studentService (no direct DB)
         try {
             Map<String, Object> overview = null;
             try {
-                overview = studentService.getStudentOverview(studentId);
+                if (studentService != null) overview = studentService.getStudentOverview(studentId);
             } catch (Exception e) {
-                // service could throw; fall back to generic display
                 System.err.println("setStudentId: studentService.getStudentOverview failed: " + e.getMessage());
             }
 
@@ -384,20 +493,19 @@ public class StudentPanel extends JPanel {
         final String txt = "Welcome, " + studentUsername;
         SwingUtilities.invokeLater(() -> welcomeLabel.setText(txt));
 
-        // notify other panels
-        dashboardPanel.setStudentId(studentId);
-        catalogPanel.setStudentId(studentId);
-        timetablePanel.setStudentId(studentId);
-        transcriptPanel.setStudentId(studentId);
-        gradesPanel.setStudentId(studentId);
-        myCoursesPanel.setStudentId(studentId);
+        // notify other panels (if they implement setStudentId)
+        invokeIfExistsWithArg(dashboardPanel, "setStudentId", studentId);
+        invokeIfExistsWithArg(catalogPanel, "setStudentId", studentId);
+        invokeIfExistsWithArg(timetablePanel, "setStudentId", studentId);
+        invokeIfExistsWithArg(transcriptPanel, "setStudentId", studentId);
+        invokeIfExistsWithArg(gradesPanel, "setStudentId", studentId);
+        invokeIfExistsWithArg(myCoursesPanel, "setStudentId", studentId);
 
-        catalogPanel.reloadFromDb(null);
-        timetablePanel.reloadForStudent();
-        transcriptPanel.reloadForStudent();
+        invokeIfExists(catalogPanel, "reloadFromDb");
+        invokeIfExists(timetablePanel, "reloadForStudent");
+        invokeIfExists(transcriptPanel, "reloadForStudent");
 
-        // safety: ensure my courses starts with fresh data
-        try { myCoursesPanel.reloadFromDb(null); } catch (Throwable ignore) {}
+        try { invokeIfExists(myCoursesPanel, "reloadFromDb"); } catch (Throwable ignore) {}
     }
 
     public void setStudentUsername(String username) {
@@ -456,14 +564,12 @@ public class StudentPanel extends JPanel {
     }
 
     // ================= MAINTENANCE =================
-    // Polling now uses SettingsService instead of direct DB.
     public void refreshMaintenance() {
         new SwingWorker<Boolean, Void>() {
             @Override
             protected Boolean doInBackground() {
                 boolean maintenance = false;
                 try {
-                    // use settingsService, expecting it to have a friendly API like isMaintenanceOn()
                     maintenance = settingsService != null && settingsService.isMaintenanceOn();
                 } catch (Exception ex) {
                     System.err.println("refreshMaintenance: settingsService read failed: " + ex.getMessage());
@@ -489,7 +595,6 @@ public class StudentPanel extends JPanel {
         }.execute();
     }
 
-    // Hardened setMaintenanceState (unchanged)
     private void setMaintenanceState(boolean maintenance) {
         System.out.println("setMaintenanceState called: maintenance=" + maintenance +
                 " | bannerVisible(before)=" + maintenanceBanner.isVisible() +
@@ -509,13 +614,14 @@ public class StudentPanel extends JPanel {
                     }
                 }
 
-                try { myCoursesPanel.setMaintenanceMode(maintenance); } catch (Throwable ignore) {}
-                try { myCoursesPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
-                try { catalogPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
-                try { timetablePanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
-                try { transcriptPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
-                try { dashboardPanel.setActionsEnabled(!maintenance); } catch (Throwable ignore) {}
-                try { gradesPanel.setEnabled(!maintenance); } catch (Throwable ignore) {}
+                invokeIfExistsWithArg(myCoursesPanel, "setMaintenanceMode", maintenance);
+                invokeIfExists(myCoursesPanel, "setActionsEnabled");
+                invokeIfExistsWithArg(catalogPanel, "setActionsEnabled", !maintenance);
+                invokeIfExistsWithArg(timetablePanel, "setActionsEnabled", !maintenance);
+                invokeIfExistsWithArg(transcriptPanel, "setActionsEnabled", !maintenance);
+                invokeIfExistsWithArg(dashboardPanel, "setActionsEnabled", !maintenance);
+
+                try { if (gradesPanel != null) gradesPanel.setEnabled(!maintenance); } catch (Throwable ignore) {}
 
                 try {
                     if (changePassBtn != null) {

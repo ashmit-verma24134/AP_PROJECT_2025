@@ -6,6 +6,7 @@ import edu.univ.erp.util.DBConnection;
 
 import java.sql.Connection;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -59,6 +60,20 @@ public class StudentServiceImpl implements StudentService {
             throw new ServiceException("Unable to load grade details", ex);
         }
     }
+
+    // in edu.univ.erp.service.StudentServiceImpl
+@Override
+public Map<String, Object> getStudentOverview(String studentId) {
+    // example: fetch Student entity and return a Map
+    Student s = studentDao.findById(Long.parseLong(studentId)); // adapt to your DAO API
+    if (s == null) return null;
+    Map<String, Object> m = new HashMap<>();
+    m.put("username", s.getUsername());
+    m.put("full_name", s.getFullName());
+    m.put("roll_no", s.getRollNo());
+    return m;
+}
+
 
     /**
      * Return current courses for student. Delegates to StudentDao.

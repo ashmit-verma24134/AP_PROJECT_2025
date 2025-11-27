@@ -12,7 +12,11 @@ Result dropSection(String studentId, long sectionId);
 
 
     // Add THIS:
+
     Result registerForSection(String studentId, long sectionId);
+    Map<String, Object> getStudentOverview(String studentId);
+
+
 
     // You can add more later as needed
 }

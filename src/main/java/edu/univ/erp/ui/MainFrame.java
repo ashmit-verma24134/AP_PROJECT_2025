@@ -81,8 +81,7 @@ public class MainFrame extends JFrame {
                 settingsService
         );
 
-        studentPanel = new StudentPanel(this);
-
+studentPanel = new StudentPanel(this, settingsService, null);
         // ----------------------------------------------------
         //  ADD PANELS TO CARDS
         // ----------------------------------------------------

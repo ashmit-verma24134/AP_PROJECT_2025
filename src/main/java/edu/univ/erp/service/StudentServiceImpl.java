@@ -64,15 +64,39 @@ public class StudentServiceImpl implements StudentService {
     // in edu.univ.erp.service.StudentServiceImpl
 @Override
 public Map<String, Object> getStudentOverview(String studentId) {
-    // example: fetch Student entity and return a Map
-    Student s = studentDao.findById(Long.parseLong(studentId)); // adapt to your DAO API
-    if (s == null) return null;
-    Map<String, Object> m = new HashMap<>();
-    m.put("username", s.getUsername());
-    m.put("full_name", s.getFullName());
-    m.put("roll_no", s.getRollNo());
-    return m;
+    if (studentId == null) return java.util.Collections.emptyMap();
+
+    try (Connection conn = DBConnection.getErpConnection()) {
+        String sql = "SELECT username, full_name, roll_no FROM students WHERE student_id = ? LIMIT 1";
+        try (var ps = conn.prepareStatement(sql)) {
+            // student_id column may be numeric or string in your DB; try numeric then fallback to string
+            try {
+                long sid = Long.parseLong(studentId);
+                ps.setLong(1, sid);
+            } catch (NumberFormatException nfe) {
+                ps.setString(1, studentId);
+            }
+
+            try (var rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    Map<String, Object> m = new HashMap<>();
+                    Object u = rs.getObject("username");
+                    Object f = rs.getObject("full_name");
+                    Object r = rs.getObject("roll_no");
+                    if (u != null) m.put("username", String.valueOf(u));
+                    if (f != null) m.put("full_name", String.valueOf(f));
+                    if (r != null) m.put("roll_no", String.valueOf(r));
+                    return m;
+                }
+            }
+        }
+    } catch (Exception ex) {
+        // keep behavior graceful — log and return empty map
+        ex.printStackTrace();
+    }
+    return java.util.Collections.emptyMap();
 }
+
 
 
     /**

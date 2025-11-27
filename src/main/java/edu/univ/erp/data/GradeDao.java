@@ -4,6 +4,8 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 
+import edu.univ.erp.model.Grade;
+
 /**
  * DAO interface for grade-related operations used by the UI and services.
  *
@@ -64,4 +66,6 @@ public interface GradeDao {
      * Alternate listing used elsewhere (keeps backward compatibility).
      */
     List<Map<String,Object>> getStudentGrades(long studentId) throws SQLException;
+
+    List<Grade> findBySection(long sectionId);
 }

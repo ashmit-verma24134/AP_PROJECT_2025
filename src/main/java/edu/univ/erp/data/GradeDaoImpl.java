@@ -1,5 +1,6 @@
 package edu.univ.erp.data;
 
+import edu.univ.erp.model.Grade;
 import edu.univ.erp.util.DBConnection;
 
 import java.sql.*;
@@ -476,4 +477,49 @@ public long createEnrollment(long studentId, long sectionId) throws SQLException
 
         createOrUpdateFinalRow(enrollmentId, percent, letter);
     }
+
+    @Override
+    public List<Grade> findBySection(long sectionId) {
+        List<Grade> list = new ArrayList<>();
+
+        String sql =
+                "SELECT g.grade_id, g.enrollment_id, g.component, g.score, g.max_score, " +
+                "       g.weight, g.final_grade, g.created_at, g.computed_at, " +
+                "       s.student_id, s.full_name AS student_name " +
+                "FROM grades g " +
+                "JOIN enrollments e ON e.enrollment_id = g.enrollment_id " +
+                "JOIN students s ON s.student_id = e.student_id " +
+                "WHERE e.section_id = ? " +
+                "ORDER BY s.full_name, g.component";
+
+        try (Connection conn = DBConnection.getErpConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, sectionId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Grade g = new Grade();
+                    g.setGradeId(rs.getLong("grade_id"));
+                    g.setEnrollmentId(rs.getLong("enrollment_id"));
+                    g.setComponent(rs.getString("component"));
+                    g.setScore((Double) rs.getObject("score"));
+                    g.setMaxScore((Double) rs.getObject("max_score"));
+                    g.setWeight((Double) rs.getObject("weight"));
+                    g.setFinalLetter(rs.getString("final_grade"));
+                    g.setCreatedAt(rs.getTimestamp("created_at"));
+                    g.setComputedAt(rs.getTimestamp("computed_at"));
+                    g.setStudentId(rs.getLong("student_id"));
+                    g.setStudentName(rs.getString("student_name"));
+
+                    list.add(g);
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        return list;
+    }
+
 }

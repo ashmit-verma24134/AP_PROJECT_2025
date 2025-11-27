@@ -2,9 +2,11 @@ package edu.univ.erp.ui.Instructor;
 
 import edu.univ.erp.data.SectionDaoImpl;
 import edu.univ.erp.data.SectionRow;
-import edu.univ.erp.util.DBConnection;
+import edu.univ.erp.service.CourseService;
+import edu.univ.erp.service.EnrollmentService;
 import edu.univ.erp.ui.RoundedPanel;
 import edu.univ.erp.ui.Theme;
+import edu.univ.erp.util.DBConnection;
 
 import javax.swing.*;
 import javax.swing.table.*;
@@ -18,29 +20,45 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * MyCoursesPanel — lists all courses taught by instructor.
- * Loads real data from DB via SectionDaoImpl and is maintenance-aware.
+ * Instructor MyCoursesPanel — now supports CourseService & EnrollmentService.
+ * Fully backwards compatible with original SectionDaoImpl logic.
  *
- * Use:
- *   myCoursesPanel.loadForInstructor(instructorId, "Spring 2025");
+ * Usage:
+ *   new MyCoursesPanel(courseService, enrollmentService)
+ *   or old constructor new MyCoursesPanel()
  */
 public class MyCoursesPanel extends JPanel {
+
     private final DefaultTableModel model;
     private final JComboBox<String> semesterFilter;
     private final JTable table;
     private final JTextField searchField;
-    // removed panel-level banner: maintenanceBanner
 
-    // state for the current load
     private long currentInstructorId = 0L;
     private String currentTerm = null;
     private volatile boolean maintenanceOn = false;
 
+    /** Optional services (null → fallback to DAO) */
+    private final CourseService courseService;
+    private final EnrollmentService enrollmentService;
+
+    // ------------------------ CONSTRUCTORS ------------------------
+
+    /** Legacy constructor (no services) */
     public MyCoursesPanel() {
+        this(null, null);
+    }
+
+    /** New constructor supporting CourseService + EnrollmentService */
+    public MyCoursesPanel(CourseService courseService, EnrollmentService enrollmentService) {
+        this.courseService = courseService;
+        this.enrollmentService = enrollmentService;
         setLayout(new BorderLayout());
         setBackground(Theme.BACKGROUND);
 
-        // === HEADER ===
+        // ========================================
+        // HEADER
+        // ========================================
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setBackground(Theme.PRIMARY);
         headerPanel.setPreferredSize(new Dimension(100, 65));
@@ -52,43 +70,39 @@ public class MyCoursesPanel extends JPanel {
 
         headerPanel.add(title, BorderLayout.WEST);
 
-        // top container (no per-panel maintenance banner)
         JPanel top = new JPanel(new BorderLayout());
         top.setBackground(Theme.PRIMARY);
         top.add(headerPanel, BorderLayout.NORTH);
-
         add(top, BorderLayout.NORTH);
 
-        // === SCROLLABLE CONTENT ===
+        // ========================================
+        // CONTENT SCROLL PANEL
+        // ========================================
         JPanel contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setBackground(Theme.BACKGROUND);
+
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         add(scrollPane, BorderLayout.CENTER);
 
-        // === FILTER BAR ===
+        // ========================================
+        // FILTER BAR
+        // ========================================
         JPanel filterPanel = new RoundedPanel(20);
         filterPanel.setBackground(Theme.CARD_BG);
         filterPanel.setLayout(new FlowLayout(FlowLayout.LEFT, 15, 10));
         filterPanel.setBorder(BorderFactory.createEmptyBorder(10, 15, 10, 15));
 
         JLabel lblSemester = new JLabel("Semester:");
-        lblSemester.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-
-        // start with only "All" and then populate from DB asynchronously
         semesterFilter = new JComboBox<>(new String[]{"All"});
-        semesterFilter.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         semesterFilter.addActionListener(e -> applyFilters());
 
-        // load semesters from DB
         loadSemesterOptionsAsync();
 
         JLabel lblSearch = new JLabel("Search:");
-        lblSearch.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         searchField = new JTextField(20);
-        searchField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         searchField.addKeyListener(new KeyAdapter() {
             @Override public void keyReleased(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_ENTER) applyFilters();
@@ -109,7 +123,9 @@ public class MyCoursesPanel extends JPanel {
         contentPanel.add(filterPanel);
         contentPanel.add(Box.createVerticalStrut(10));
 
-        // === TABLE SECTION ===
+        // ========================================
+        // TABLE
+        // ========================================
         RoundedPanel tableCard = new RoundedPanel(25);
         tableCard.setBackground(Theme.CARD_BG);
         tableCard.setLayout(new BorderLayout());
@@ -117,39 +133,25 @@ public class MyCoursesPanel extends JPanel {
 
         JLabel lblTableTitle = new JLabel("Courses List");
         lblTableTitle.setFont(new Font("Segoe UI", Font.BOLD, 18));
-        lblTableTitle.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
         tableCard.add(lblTableTitle, BorderLayout.NORTH);
 
-        // Columns: Course Code, Title, Semester, Day/Time, Room, Capacity, Students
         String[] cols = {
                 "Course Code", "Title", "Semester",
                 "Day / Time", "Room", "Capacity", "Students"
         };
 
         model = new DefaultTableModel(cols, 0) {
-            @Override
-            public boolean isCellEditable(int r, int c) {
-                return false; // nothing editable in this view
-            }
+            @Override public boolean isCellEditable(int r, int c) { return false; }
 
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                if (columnIndex == 5 || columnIndex == 6) return Integer.class;
-                return String.class;
+            @Override public Class<?> getColumnClass(int i) {
+                return (i == 5 || i == 6) ? Integer.class : String.class;
             }
         };
 
         table = new JTable(model);
         table.setRowHeight(40);
         table.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 14));
-        table.getTableHeader().setBackground(Theme.PRIMARY);
-        table.getTableHeader().setForeground(Color.WHITE);
-        table.setGridColor(new Color(230, 230, 230));
         table.setAutoCreateRowSorter(true);
-
-        // make table non-focusable when maintenance on (toggle in load)
-        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
         JScrollPane sp = new JScrollPane(table);
         sp.setBorder(null);
@@ -158,125 +160,101 @@ public class MyCoursesPanel extends JPanel {
         contentPanel.add(tableCard);
         contentPanel.add(Box.createVerticalStrut(30));
 
-        // === Initial placeholder row ===
         model.addRow(new Object[]{"—", "No data loaded", "—", "-", "-", 0, 0});
     }
 
-    /** Load semester dropdown options from DB asynchronously (robust & tolerant) */
+    // ================================================================
+    // SEMESTER DROPDOWN LOADING
+    // ================================================================
     private void loadSemesterOptionsAsync() {
         new SwingWorker<List<String>, Void>() {
-            Exception error = null;
+            @Override protected List<String> doInBackground() {
+                List<String> out = new ArrayList<>();
+                String sql = """
+                    SELECT DISTINCT semester, year
+                    FROM sections
+                    WHERE semester IS NOT NULL AND semester <> ''
+                    ORDER BY year DESC, semester DESC
+                """;
 
-            @Override
-            protected List<String> doInBackground() {
-                List<String> terms = new ArrayList<>();
-                String sql = "SELECT DISTINCT semester, year FROM sections WHERE semester IS NOT NULL AND semester <> '' " +
-                        "ORDER BY year DESC, semester DESC";
-                try (Connection conn = DBConnection.getErpConnection();
-                     PreparedStatement ps = conn.prepareStatement(sql);
+                try (Connection c = DBConnection.getErpConnection();
+                     PreparedStatement ps = c.prepareStatement(sql);
                      ResultSet rs = ps.executeQuery()) {
+
                     while (rs.next()) {
                         String sem = rs.getString("semester");
                         int yr = rs.getInt("year");
-                        if (sem == null) sem = "";
-                        String term = (sem.trim().isEmpty() ? String.valueOf(yr) : (sem.trim() + " " + yr));
-                        if (!term.trim().isEmpty() && !terms.contains(term)) terms.add(term);
+                        String term = sem == null ? "" : sem.trim();
+                        if (!term.isEmpty()) term += " " + yr;
+                        if (!term.isEmpty()) out.add(term);
                     }
-                } catch (Exception ex) {
-                    error = ex;
-                }
-                return terms;
+                } catch (Exception ignored) {}
+                return out;
             }
 
-            @Override
-            protected void done() {
+            @Override protected void done() {
                 try {
                     List<String> terms = get();
-                    DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
-                    model.addElement("All");
-                    if (terms != null && !terms.isEmpty()) {
-                        for (String t : terms) model.addElement(t);
-                    }
-                    semesterFilter.setModel(model);
-
-                } catch (Exception ex) {
-                    // keep "All" only if DB failed
-                    DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
-                    model.addElement("All");
-                    semesterFilter.setModel(model);
-                    ex.printStackTrace();
-                }
+                    DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
+                    m.addElement("All");
+                    for (String t : terms) m.addElement(t);
+                    semesterFilter.setModel(m);
+                } catch (Exception ignored) {}
             }
         }.execute();
     }
 
-    /** Applies search and semester filters */
-    private void applyFilters() {
-        final String searchText = searchField.getText().trim().toLowerCase();
-        final String semesterSelected = (String) semesterFilter.getSelectedItem();
-
-        TableRowSorter<TableModel> sorter = (TableRowSorter<TableModel>) table.getRowSorter();
-        if (sorter == null) {
-            sorter = new TableRowSorter<>(model);
-            table.setRowSorter(sorter);
-        }
-
-        final TableRowSorter<TableModel> finalSorter = sorter;
-        sorter.setRowFilter(new RowFilter<TableModel, Integer>() {
-            @Override
-            public boolean include(Entry<? extends TableModel, ? extends Integer> entry) {
-                // search against course code (col 0) and title (col 1)
-                String code = entry.getStringValue(0);
-                String title = entry.getStringValue(1);
-                String sem = entry.getStringValue(2);
-
-                boolean matchesSearch = searchText.isEmpty() ||
-                        (code != null && code.toLowerCase().contains(searchText)) ||
-                        (title != null && title.toLowerCase().contains(searchText));
-
-                boolean matchesSemester = semesterSelected == null || semesterSelected.equals("All") || (sem != null && sem.equals(semesterSelected));
-                return matchesSearch && matchesSemester;
-            }
-        });
-    }
-
-    // ------------------ Public API ------------------
-
-    /**
-     * Load sections for a given instructor and optional term (e.g. "Fall 2025").
-     * This runs the DB query in background and populates the table when done.
-     */
+    // ================================================================
+    // PUBLIC API
+    // ================================================================
     public void loadForInstructor(long instructorId, String term) {
         this.currentInstructorId = instructorId;
         this.currentTerm = term;
         loadFromDbAsync();
     }
 
-    /** Simple refresh of last loaded instructor/term */
     public void refresh() {
         loadFromDbAsync();
     }
 
-    // ------------------ DB access (background) ------------------
-
+    // ================================================================
+    // DB LOADING (service or fallback to DAO)
+    // ================================================================
     private void loadFromDbAsync() {
-        // show a quick loading row
+
         SwingUtilities.invokeLater(() -> {
             model.setRowCount(0);
             model.addRow(new Object[]{"—", "Loading...", "—", "-", "-", 0, 0});
-            // no per-panel banner to hide
+            table.setEnabled(false);
         });
 
         new SwingWorker<List<SectionRow>, Void>() {
-            private Exception error = null;
+
+            Exception error = null;
 
             @Override
             protected List<SectionRow> doInBackground() {
-                try (Connection conn = DBConnection.getErpConnection()) {
-                    SectionDaoImpl dao = new SectionDaoImpl(conn);
-                    // check maintenance
-                    maintenanceOn = dao.isMaintenanceOn();
-                    return dao.getSectionsByInstructor(currentInstructorId, currentTerm);
+
+                try {
+                    // -------------------------
+                    // SERVICE MODE
+                    // -------------------------
+                    if (enrollmentService != null) {
+                        maintenanceOn = false; // Instructor view maintenance handled globally
+
+                        // enrollmentService.getInstructorSections() already returns SectionRow[]
+                        return enrollmentService.getInstructorSections(currentInstructorId, currentTerm);
+                    }
+
+                    // -------------------------
+                    // DAO FALLBACK
+                    // -------------------------
+                    try (Connection conn = DBConnection.getErpConnection()) {
+                        SectionDaoImpl dao = new SectionDaoImpl(conn);
+                        maintenanceOn = dao.isMaintenanceOn();
+                        return dao.getSectionsByInstructor(currentInstructorId, currentTerm);
+                    }
+
                 } catch (Exception ex) {
                     error = ex;
                     return null;
@@ -285,78 +263,107 @@ public class MyCoursesPanel extends JPanel {
 
             @Override
             protected void done() {
+                model.setRowCount(0);
+
                 if (error != null) {
-                    model.setRowCount(0);
-                    model.addRow(new Object[]{"—", "Failed to load: " + error.getMessage(), "—", "-", "-", 0, 0});
+                    model.addRow(new Object[]{"—", "Failed: " + error.getMessage(), "—", "-", "-", 0, 0});
                     error.printStackTrace();
-                    // toggle read-only (no banner)
                     toggleReadOnly(maintenanceOn);
                     return;
                 }
+
                 try {
                     List<SectionRow> rows = get();
-                    model.setRowCount(0);
-
-                    // If combo only has "All", build term list from loaded rows and populate combo
-                    boolean comboHasOnlyAll = (semesterFilter.getItemCount() <= 1);
-                    List<String> builtTerms = new ArrayList<>();
 
                     if (rows == null || rows.isEmpty()) {
                         model.addRow(new Object[]{"—", "No sections found", "—", "-", "-", 0, 0});
-                    } else {
-                        for (SectionRow r : rows) {
-                            // build term string exactly as we will show it
-                            String termStr = (r.semester == null || r.semester.isBlank()) ? String.valueOf(r.year) : (r.semester + " " + r.year);
-                            // collect for combo if needed
-                            if (comboHasOnlyAll && !builtTerms.contains(termStr)) builtTerms.add(termStr);
-
-                            String dayTime = r.dayTime == null ? "-" : r.dayTime;
-                            String room = r.room == null ? "-" : r.room;
-                            int capacity = r.capacity;
-                            int seatsLeft = r.seatsLeft;
-                            int enrolled = capacity - seatsLeft;
-                            if (enrolled < 0) enrolled = 0;
-
-                            model.addRow(new Object[]{
-                                    r.courseCode == null ? "-" : r.courseCode,
-                                    r.title == null ? "-" : r.title,
-                                    termStr,
-                                    dayTime,
-                                    room,
-                                    capacity,
-                                    enrolled
-                            });
-                        }
+                        toggleReadOnly(maintenanceOn);
+                        return;
                     }
 
-                    // if combo had only All, populate with terms found from rows (so filter works)
-                    if (comboHasOnlyAll && !builtTerms.isEmpty()) {
-                        DefaultComboBoxModel<String> comboModel = new DefaultComboBoxModel<>();
-                        comboModel.addElement("All");
-                        for (String t : builtTerms) comboModel.addElement(t);
-                        semesterFilter.setModel(comboModel);
+                    List<String> newTerms = new ArrayList<>();
+
+                    for (SectionRow r : rows) {
+                        String termStr = (r.semester == null || r.semester.isBlank())
+                                ? String.valueOf(r.year)
+                                : r.semester + " " + r.year;
+
+                        if (!newTerms.contains(termStr)) newTerms.add(termStr);
+
+                        int enrolled = r.capacity - r.seatsLeft;
+                        if (enrolled < 0) enrolled = 0;
+
+                        model.addRow(new Object[]{
+                                r.courseCode,
+                                r.title,
+                                termStr,
+                                r.dayTime == null ? "-" : r.dayTime,
+                                r.room == null ? "-" : r.room,
+                                r.capacity,
+                                enrolled
+                        });
                     }
 
-                    // toggle read-only state (no panel-level banner)
+                    // If combo had only "All", populate from data
+                    if (semesterFilter.getItemCount() <= 1 && !newTerms.isEmpty()) {
+                        DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
+                        m.addElement("All");
+                        for (String t : newTerms) m.addElement(t);
+                        semesterFilter.setModel(m);
+                    }
+
                     toggleReadOnly(maintenanceOn);
-
-                    // apply filters (keep previous search/semester selection)
                     applyFilters();
 
                 } catch (Exception ex) {
-                    model.setRowCount(0);
-                    model.addRow(new Object[]{"—", "Failed to load: " + ex.getMessage(), "—", "-", "-", 0, 0});
-                    ex.printStackTrace();
+                    model.addRow(new Object[]{"—", "Failed: " + ex.getMessage(), "—", "-", "-", 0, 0});
                 }
             }
         }.execute();
     }
 
-    /** Toggles read-only visuals/interaction when maintenance is ON */
-    private void toggleReadOnly(boolean readOnly) {
-        // Do not show any panel-level banner here; that is handled by MainFrame/global UI.
-        table.setEnabled(!readOnly);
-        searchField.setEnabled(!readOnly);
-        semesterFilter.setEnabled(!readOnly);
+    // ================================================================
+    // TABLE FILTERING
+    // ================================================================
+    private void applyFilters() {
+        String searchText = searchField.getText().trim().toLowerCase();
+        String filterTerm = (String) semesterFilter.getSelectedItem();
+
+        TableRowSorter<TableModel> sorter =
+                (TableRowSorter<TableModel>) table.getRowSorter();
+
+        if (sorter == null) {
+            sorter = new TableRowSorter<>(model);
+            table.setRowSorter(sorter);
+        }
+
+        sorter.setRowFilter(new RowFilter<>() {
+            @Override
+            public boolean include(Entry<? extends TableModel, ? extends Integer> e) {
+                String code = e.getStringValue(0).toLowerCase();
+                String title = e.getStringValue(1).toLowerCase();
+                String term = e.getStringValue(2);
+
+                boolean matchSearch =
+                        searchText.isEmpty() ||
+                        code.contains(searchText) ||
+                        title.contains(searchText);
+
+                boolean matchTerm =
+                        filterTerm.equals("All") ||
+                        term.equals(filterTerm);
+
+                return matchSearch && matchTerm;
+            }
+        });
+    }
+
+    // ================================================================
+    // MAINTENANCE READ-ONLY MODE
+    // ================================================================
+    private void toggleReadOnly(boolean on) {
+        table.setEnabled(!on);
+        searchField.setEnabled(!on);
+        semesterFilter.setEnabled(!on);
     }
 }

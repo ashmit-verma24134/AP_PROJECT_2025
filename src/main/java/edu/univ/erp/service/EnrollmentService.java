@@ -1,15 +1,16 @@
-package edu.univ.erp.data;
+package edu.univ.erp.service;
 
 import edu.univ.erp.data.SectionRow;
+
 import java.util.List;
 
-public interface EnrollmentDao {
+public interface EnrollmentService {
 
     boolean isStudentEnrolled(long studentId, long sectionId) throws Exception;
 
-    long createEnrollment(long studentId, long sectionId) throws Exception;
+    long enroll(long studentId, long sectionId) throws Exception;
 
-    boolean dropEnrollment(long studentId, long sectionId) throws Exception;
+    boolean drop(long studentId, long sectionId) throws Exception;
 
     int countEnrolled(long sectionId) throws Exception;
 

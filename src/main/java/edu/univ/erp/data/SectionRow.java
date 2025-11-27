@@ -1,30 +1,44 @@
 package edu.univ.erp.data;
 
-import java.sql.Date;
-import java.sql.Timestamp;
-
 public class SectionRow {
+
     public long sectionId;
     public long courseId;
-    public String courseCode;
+    public String code;
     public String title;
-    public int credits;
-
+    public double credits;
     public long instructorId;
     public String instructorName;
-
-    public String dayTime;
-    public String room;
-    public String sectionNo;
-
-    public String semester;
-    public int year;
-
     public int capacity;
     public int seatsLeft;
-    public int enrolled;
+    public String semester;
 
-    public Date dropDeadline;
-    public Timestamp createdAt;
-    public Timestamp updatedAt;
+    public SectionRow(
+            long sectionId,
+            long courseId,
+            String code,
+            String title,
+            double credits,
+            long instructorId,
+            String instructorName,
+            int capacity,
+            int seatsLeft,
+            String semester
+    ) {
+        this.sectionId = sectionId;
+        this.courseId = courseId;
+        this.code = code;
+        this.title = title;
+        this.credits = credits;
+        this.instructorId = instructorId;
+        this.instructorName = instructorName;
+        this.capacity = capacity;
+        this.seatsLeft = seatsLeft;
+        this.semester = semester;
+    }
+
+    @Override
+    public String toString() {
+        return code + " - " + title + " (" + semester + ")";
+    }
 }

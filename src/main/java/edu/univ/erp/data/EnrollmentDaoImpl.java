@@ -4,7 +4,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.sql.SQLException;
+//import edu.univ.erp.model.SectionRow;
+
+import java.util.List;
 
 import edu.univ.erp.util.DBConnection;
 
@@ -152,4 +156,108 @@ public class EnrollmentDaoImpl implements EnrollmentDao {
             return ps.executeUpdate() > 0;
         }
     }
+
+      // ======================================================
+    // NEW METHODS ADDED FOR UI COMPATIBILITY
+    // ======================================================
+
+    @Override
+    public int countEnrolled(long sectionId) throws Exception {
+        String sql = """
+            SELECT COUNT(*) 
+            FROM enrollments
+            WHERE section_id = ? AND status='ENROLLED'
+        """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, sectionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    private SectionRow mapRow(ResultSet rs) throws Exception {
+        return new SectionRow(
+                rs.getLong("section_id"),
+                rs.getLong("course_id"),
+                rs.getString("code"),
+                rs.getString("title"),
+                rs.getDouble("credits"),
+                rs.getLong("instructor_id"),
+                rs.getString("instructor"),
+                rs.getInt("capacity"),
+                rs.getInt("seats_left"),
+                rs.getString("semester")
+        );
+    }
+
+    @Override
+    public List<SectionRow> getEnrolledSections(long studentId, String term) throws Exception {
+        List<SectionRow> list = new ArrayList<>();
+
+        String sql = """
+            SELECT s.section_id, s.course_id, c.code, c.title, c.credits,
+                   s.instructor_id, COALESCE(i.full_name, 'TBA') AS instructor,
+                   s.capacity,
+                   (s.capacity - (
+                      SELECT COUNT(*) FROM enrollments e WHERE e.section_id=s.section_id AND e.status='ENROLLED'
+                   )) AS seats_left,
+                   s.semester
+            FROM enrollments e2
+            JOIN sections s ON e2.section_id = s.section_id
+            JOIN courses c ON s.course_id = c.course_id
+            LEFT JOIN instructors i ON s.instructor_id=i.instructor_id
+            WHERE e2.student_id = ? 
+              AND e2.status='ENROLLED'
+              AND (? IS NULL OR s.semester=?)
+        """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, studentId);
+            ps.setString(2, term);
+            ps.setString(3, term);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapRow(rs));
+                }
+            }
+        }
+        return list;
+    }
+
+    @Override
+    public List<SectionRow> getInstructorSections(long instructorId, String term) throws Exception {
+        List<SectionRow> list = new ArrayList<>();
+
+        String sql = """
+            SELECT s.section_id, s.course_id, c.code, c.title, c.credits,
+                   s.instructor_id, COALESCE(i.full_name, 'TBA') AS instructor,
+                   s.capacity,
+                   (s.capacity - (
+                      SELECT COUNT(*) FROM enrollments e WHERE e.section_id=s.section_id AND e.status='ENROLLED'
+                   )) AS seats_left,
+                   s.semester
+            FROM sections s
+            JOIN courses c ON s.course_id=c.course_id
+            LEFT JOIN instructors i ON i.instructor_id=s.instructor_id
+            WHERE s.instructor_id=? 
+              AND (? IS NULL OR s.semester=?)
+        """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, instructorId);
+            ps.setString(2, term);
+            ps.setString(3, term);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapRow(rs));
+                }
+            }
+        }
+        return list;
+    }
+
 }
